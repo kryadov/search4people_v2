@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+
+# uv / venv
+.venv/
+.uv-cache/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Data (runtime DB)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Chainlit
+.chainlit/translations/
+.files/
+
+# Playwright
+playwright-report/
+test-results/

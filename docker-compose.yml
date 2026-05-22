@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    image: search4people-v2:latest
+    container_name: search4people
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

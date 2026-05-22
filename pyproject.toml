@@ -1,0 +1,104 @@
+[project]
+name = "search4people-v2"
+version = "0.1.0"
+description = "Conversational OSINT-style people search powered by LangGraph and Chainlit."
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+license = { text = "MIT" }
+authors = [{ name = "search4people contributors" }]
+
+dependencies = [
+    # LangGraph & checkpoints
+    "langgraph>=1.2.1,<2.0",
+    "langgraph-checkpoint-sqlite>=3.1.0,<4.0",
+    # LangChain core + multi-provider chat
+    "langchain>=1.3.1,<2.0",
+    "langchain-core>=1.0.0,<2.0",
+    "langchain-anthropic>=1.4.3,<2.0",
+    "langchain-openai>=1.2.2,<2.0",
+    "langchain-ollama>=1.1.0,<2.0",
+    # Search providers
+    "langchain-tavily>=0.2.18,<1.0",
+    "ddgs>=9.14.4,<10.0",
+    # Chat UI
+    "chainlit>=2.11.1,<3.0",
+    # HTTP + parsing + JS fallback
+    "httpx[http2]>=0.28.0",
+    "selectolax>=0.4.9",
+    "markdownify>=1.2.2",
+    "playwright>=1.50.0",
+    # Schemas + settings
+    "pydantic>=2.9.0,<3.0",
+    "pydantic-settings>=2.6.0,<3.0",
+    # Auth + storage
+    "bcrypt>=4.2.0",
+    "aiosqlite>=0.20.0",
+    # Logging + optional tracing
+    "structlog>=24.4.0",
+    "langsmith>=0.4.0",
+]
+
+[project.scripts]
+s4p-create-user = "app.scripts.create_user:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "respx>=0.22.0",
+    "ruff>=0.13.0",
+    "mypy>=1.13.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+# -------------------------- Tooling --------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = [".venv", "data", ".chainlit"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle + pyflakes
+    "I",              # isort
+    "B",              # bugbear
+    "UP",             # pyupgrade
+    "SIM",            # simplify
+    "RUF",            # ruff-specific
+]
+ignore = [
+    "E501",   # long lines handled by formatter
+    "B008",   # function calls in defaults (FastAPI/Pydantic idiom)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B", "SIM"]
+# Russian i18n strings necessarily contain Cyrillic characters that look like Latin ones.
+"app/i18n.py" = ["RUF001"]
+# EN DASH is intentionally used for human-readable year ranges in profile rendering.
+"app/models/profile.py" = ["RUF001"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+ignore_missing_imports = true
+exclude = ["\\.venv", "data", "\\.chainlit"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
