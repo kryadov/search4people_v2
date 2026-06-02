@@ -21,7 +21,7 @@ from app.graph.prompts import (
     NARROW_QUERY_PROMPT,
     SYSTEM_RESEARCHER,
 )
-from app.llm import build_chat_model
+from app.llm import build_chat_model, build_structured_model
 from app.models.profile import Candidate, PersonProfile
 from app.models.state import IdentityQuery, PeopleSearchState
 from app.tools.extract import extract_profile_from_page
@@ -364,7 +364,7 @@ async def build_profile(state: PeopleSearchState) -> dict[str, Any]:
         distinguishers=distinguishers or "(none)",
         partials=json.dumps(partials, ensure_ascii=False, indent=2)[:30_000],
     )
-    model = build_chat_model(temperature=0.0).with_structured_output(PersonProfile)
+    model = build_structured_model(PersonProfile, temperature=0.0)
     try:
         profile = await model.ainvoke(
             [SystemMessage(content=SYSTEM_RESEARCHER), HumanMessage(content=prompt)]

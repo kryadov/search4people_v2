@@ -5,7 +5,7 @@ from __future__ import annotations
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.llm import build_chat_model
+from app.llm import build_structured_model
 from app.models.profile import PersonProfile
 
 log = structlog.get_logger()
@@ -37,7 +37,7 @@ async def extract_profile_from_page(
 ) -> PersonProfile:
     """Run the LLM in structured-output mode against a single fetched page."""
     body = markdown[:max_chars]
-    model = build_chat_model(temperature=0.0).with_structured_output(PersonProfile)
+    model = build_structured_model(PersonProfile, temperature=0.0)
     messages = [
         SystemMessage(content=_SYSTEM),
         HumanMessage(

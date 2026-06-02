@@ -33,6 +33,20 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
     ollama_base_url: str = "http://localhost:11434"
+    # How long Ollama keeps the model resident between requests. The Ollama API
+    # accepts an integer number of seconds (-1 = keep loaded forever) or a
+    # unit'd duration string like "30m" — a bare "-1" string is rejected.
+    # Keeping the model loaded avoids unload/reload churn that can race with
+    # JSON-schema (format) setup ("failed to load model vocabulary required for
+    # format"). Env values like "-1" coerce to int; "30m" stays a string.
+    ollama_keep_alive: int | str = -1
+    # Structured-output method for the Ollama provider. The strict JSON-schema
+    # grammar ("json_schema") fails to load the vocabulary for some local models
+    # (e.g. gpt-oss → "failed to load model vocabulary required for format");
+    # "function_calling" or "json_mode" avoid it. Cloud providers ignore this.
+    ollama_structured_output_method: Literal[
+        "function_calling", "json_mode", "json_schema"
+    ] = "function_calling"
 
     # Search
     search_providers: Annotated[list[SearchProvider], NoDecode] = Field(
@@ -85,6 +99,22 @@ class Settings(BaseSettings):
         if isinstance(value, list):
             return _split_csv(value)
         raise TypeError(f"Expected list or comma-separated string, got {type(value)!r}")
+
+    @field_validator("ollama_keep_alive", mode="before")
+    @classmethod
+    def _coerce_keep_alive(cls, value: object) -> int | str:
+        # Env vars arrive as strings; a numeric one like "-1" must become an int
+        # (Ollama treats it as seconds, -1 = forever). A unit'd duration such as
+        # "30m" stays a string. A bare "-1" string is rejected by Ollama.
+        if isinstance(value, str):
+            stripped = value.strip()
+            try:
+                return int(stripped)
+            except ValueError:
+                return stripped
+        if isinstance(value, int):
+            return value
+        raise TypeError(f"Expected int or duration string, got {type(value)!r}")
 
     @property
     def all_platforms(self) -> list[str]:

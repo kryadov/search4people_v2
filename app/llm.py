@@ -27,7 +27,12 @@ def _provider_kwargs(settings: Settings) -> dict[str, Any]:
             raise RuntimeError("OPENAI_API_KEY is required for the openai provider")
         return {"api_key": settings.openai_api_key}
     if provider == "ollama":
-        return {"base_url": settings.ollama_base_url}
+        return {
+            "base_url": settings.ollama_base_url,
+            # Keep the model resident between calls to avoid the unload/reload
+            # race that can break JSON-schema (format) requests on some models.
+            "keep_alive": settings.ollama_keep_alive,
+        }
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
 
@@ -46,3 +51,20 @@ def build_chat_model(temperature: float = 0.0) -> BaseChatModel:
         temperature=temperature,
         **kwargs,
     )
+
+
+def build_structured_model(schema: type, temperature: float = 0.0) -> Any:
+    """Return a chat model bound to `schema` for structured output.
+
+    On Ollama the default strict JSON-schema grammar can fail to load the model
+    vocabulary for some models (e.g. gpt-oss), so we use the configured method
+    (`ollama_structured_output_method`, default "function_calling"). Cloud
+    providers keep LangChain's default method.
+    """
+    settings = get_settings()
+    model = build_chat_model(temperature)
+    if settings.llm_provider == "ollama":
+        return model.with_structured_output(
+            schema, method=settings.ollama_structured_output_method
+        )
+    return model.with_structured_output(schema)
