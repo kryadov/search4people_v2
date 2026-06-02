@@ -172,16 +172,14 @@ def route_after_evaluate(state: PeopleSearchState) -> str:
     return "fetch_pages"
 
 
-async def narrow_query(state: PeopleSearchState) -> dict[str, Any]:
-    """Ask the LLM which attribute to ask for, then interrupt for the user.
+async def plan_narrowing(
+    candidates: list[dict[str, Any]], query: IdentityQuery, locale: str
+) -> dict[str, Any]:
+    """Ask the LLM which distinguishing attribute to request next.
 
-    The user can either pick a candidate by index (→ jump straight to fetch),
-    pick one of the LLM-extracted attribute values, or type a free-form value.
+    Pure (no `interrupt`) so it can be evaluated in isolation. Returns a dict
+    with keys: `attribute` (str | None), `question` (str), `options` (list[str]).
     """
-    candidates = state.get("candidates") or []
-    query = state["query"]
-    locale = state.get("locale", "en")
-
     prompt = NARROW_QUERY_PROMPT.format(
         candidates=_short_candidate_list(candidates),
         known_attributes=_distinguishers(query) or "(none yet)",
@@ -193,7 +191,8 @@ async def narrow_query(state: PeopleSearchState) -> dict[str, Any]:
     plan = _safe_json(response.content) or {}
     attribute = plan.get("attribute")
     question = (
-        plan.get(f"question_{locale}") or "Could you share any additional distinguishing details?"
+        plan.get(f"question_{locale}")
+        or "Could you share any additional distinguishing details?"
     )
     raw_options = plan.get("options") or []
     options: list[str] = []
@@ -205,6 +204,23 @@ async def narrow_query(state: PeopleSearchState) -> dict[str, Any]:
                 if stripped and stripped.lower() not in seen:
                     options.append(stripped)
                     seen.add(stripped.lower())
+    return {"attribute": attribute, "question": question, "options": options}
+
+
+async def narrow_query(state: PeopleSearchState) -> dict[str, Any]:
+    """Ask the LLM which attribute to ask for, then interrupt for the user.
+
+    The user can either pick a candidate by index (→ jump straight to fetch),
+    pick one of the LLM-extracted attribute values, or type a free-form value.
+    """
+    candidates = state.get("candidates") or []
+    query = state["query"]
+    locale = state.get("locale", "en")
+
+    plan = await plan_narrowing(candidates, query, locale)
+    attribute = plan["attribute"]
+    question = plan["question"]
+    options = plan["options"]
 
     answer = interrupt(
         {
