@@ -48,6 +48,7 @@ dev = [
     "respx>=0.22.0",
     "ruff>=0.13.0",
     "mypy>=1.13.0",
+    "deepeval>=4.0.5,<5.0",
 ]
 
 [build-system]
@@ -98,7 +99,11 @@ exclude = ["\\.venv", "data", "\\.chainlit"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers -m \"not eval\""
+markers = [
+    "eval: LLM-quality evals via DeepEval (opt-in; run with `pytest -m eval`)",
+    "live: hits the live web/search stack (opt-in; run with `pytest -m \"eval and live\"`)",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]

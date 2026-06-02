@@ -1,0 +1,21 @@
+{
+  "jane_doe_github": {
+    "full_name": "Jane Doe",
+    "url": "https://github.com/jane-doe",
+    "expected_facts": [
+      "Globex Corporation",
+      "Stanford University",
+      "San Francisco"
+    ],
+    "forbidden_facts": [
+      "any employer other than Globex or Acme",
+      "any university other than Stanford",
+      "a specific date of birth",
+      "a home street address or phone number"
+    ]
+  },
+  "not_jane_doe": {
+    "full_name": "Jane Doe",
+    "url": "https://example.com/john-smith-plumbing"
+  }
+}
