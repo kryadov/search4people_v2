@@ -11,6 +11,14 @@ import os
 
 import pytest
 
+# DeepEval's default per-task / gather timeouts assume a fast hosted judge. A
+# local Ollama (e.g. gpt-oss:20b) is much slower, so raise the ceilings before
+# DeepEval reads them. Set at import time so they apply to every eval session.
+os.environ.setdefault("DEEPEVAL_TELEMETRY_OPT_OUT", "1")
+os.environ.setdefault("ERROR_REPORTING", "0")
+os.environ.setdefault("DEEPEVAL_PER_TASK_TIMEOUT_SECONDS_OVERRIDE", "1200")
+os.environ.setdefault("DEEPEVAL_TASK_GATHER_BUFFER_SECONDS_OVERRIDE", "1200")
+
 
 def _judge_unavailable_reason() -> str | None:
     """Return a human reason if the judge can't run, else None."""
@@ -27,7 +35,7 @@ def _judge_unavailable_reason() -> str | None:
 
         try:
             httpx.get(settings.ollama_base_url, timeout=2.0)
-        except Exception:  # noqa: BLE001 — any connection failure means skip
+        except Exception:
             return f"Ollama not reachable at {settings.ollama_base_url}"
     return None
 

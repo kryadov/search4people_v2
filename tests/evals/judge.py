@@ -33,7 +33,10 @@ class LangChainJudge(DeepEvalBaseLLM):
     def generate(self, prompt: str, schema: type[BaseModel] | None = None, **kwargs: Any) -> Any:
         model = self.load_model()
         if schema is not None:
-            return model.with_structured_output(schema).invoke(prompt)
+            try:
+                return model.with_structured_output(schema).invoke(prompt)
+            except Exception:
+                pass  # fall through to plain text; DeepEval parses JSON from it
         result = model.invoke(prompt)
         return getattr(result, "content", str(result))
 
@@ -42,6 +45,9 @@ class LangChainJudge(DeepEvalBaseLLM):
     ) -> Any:
         model = self.load_model()
         if schema is not None:
-            return await model.with_structured_output(schema).ainvoke(prompt)
+            try:
+                return await model.with_structured_output(schema).ainvoke(prompt)
+            except Exception:
+                pass  # fall through to plain text; DeepEval parses JSON from it
         result = await model.ainvoke(prompt)
         return getattr(result, "content", str(result))
