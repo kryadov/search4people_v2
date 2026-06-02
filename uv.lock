@@ -2773,7 +2773,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "deepeval", specifier = ">=4.0.5" },
+    { name = "deepeval", specifier = ">=4.0.5,<5.0" },
     { name = "mypy", specifier = ">=1.13.0" },
     { name = "pytest", specifier = ">=8.3.0" },
     { name = "pytest-asyncio", specifier = ">=0.24.0" },

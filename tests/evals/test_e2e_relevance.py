@@ -64,5 +64,6 @@ async def test_e2e_profile_is_about_target_person():
         ],
         model=LangChainJudge(),
         threshold=0.5,
+        async_mode=False,
     )
-    assert_test(test_case, [on_target])
+    assert_test(test_case, [on_target], run_async=False)

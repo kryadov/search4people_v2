@@ -31,12 +31,12 @@ class LangChainJudge(DeepEvalBaseLLM):
         return f"app-llm:{get_settings().llm_model}"
 
     def generate(self, prompt: str, schema: type[BaseModel] | None = None, **kwargs: Any) -> Any:
+        # DeepEval 4.x passes a Pydantic `schema` for its structured metric steps
+        # and expects an instance of it back, so we must NOT fall back to plain
+        # text here — let any structured-output error propagate with its message.
         model = self.load_model()
         if schema is not None:
-            try:
-                return model.with_structured_output(schema).invoke(prompt)
-            except Exception:
-                pass  # fall through to plain text; DeepEval parses JSON from it
+            return model.with_structured_output(schema).invoke(prompt)
         result = model.invoke(prompt)
         return getattr(result, "content", str(result))
 
@@ -45,9 +45,6 @@ class LangChainJudge(DeepEvalBaseLLM):
     ) -> Any:
         model = self.load_model()
         if schema is not None:
-            try:
-                return await model.with_structured_output(schema).ainvoke(prompt)
-            except Exception:
-                pass  # fall through to plain text; DeepEval parses JSON from it
+            return await model.with_structured_output(schema).ainvoke(prompt)
         result = await model.ainvoke(prompt)
         return getattr(result, "content", str(result))

@@ -32,7 +32,9 @@ async def test_narrowing_question_is_discriminating_en():
     plan = await plan_narrowing(candidates, query, locale="en")
 
     # Deterministic structural checks:
-    assert plan["attribute"] in VALID_ATTRIBUTES
+    assert plan["attribute"] in VALID_ATTRIBUTES, (
+        f"LLM returned unexpected attribute: {plan['attribute']!r}"
+    )
     assert plan["question"].strip()
 
     test_case = LLMTestCase(
