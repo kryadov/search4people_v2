@@ -12,7 +12,19 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _isolate_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def _isolate_env(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.config import get_settings
+
+    # Eval tests must use the real environment (.env → local Ollama judge),
+    # not the fake Anthropic key below. We still reset the settings cache.
+    if request.node.get_closest_marker("eval") is not None:
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
+        return
+
     monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("CHAINLIT_AUTH_SECRET", "test-secret-must-be-long-enough")
     monkeypatch.setenv("LLM_PROVIDER", "anthropic")
@@ -21,8 +33,6 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("SEARCH_PROVIDERS", "ddg")
     monkeypatch.setenv("LANGSMITH_TRACING", "false")
     # Drop the lru_cached settings singleton between tests.
-    from app.config import get_settings
-
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
