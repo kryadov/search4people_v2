@@ -1,0 +1,23 @@
+[
+  {
+    "url": "https://github.com/jane-doe",
+    "title": "Jane Doe (jane-doe) · GitHub",
+    "snippet": "Senior Software Engineer at Globex Corporation. Rust and Go.",
+    "platform": "github",
+    "confidence": 0.6
+  },
+  {
+    "url": "https://www.linkedin.com/in/jane-doe-acme",
+    "title": "Jane Doe — Software Engineer — Acme Inc | LinkedIn",
+    "snippet": "Software Engineer at Acme Inc, San Francisco Bay Area.",
+    "platform": "linkedin",
+    "confidence": 0.5
+  },
+  {
+    "url": "https://twitter.com/jane_doe_dev",
+    "title": "Jane Doe (@jane_doe_dev) / Twitter",
+    "snippet": "Distributed systems. Maintainer of fastqueue. Stanford CS.",
+    "platform": "twitter",
+    "confidence": 0.5
+  }
+]
