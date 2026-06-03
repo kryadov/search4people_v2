@@ -30,21 +30,31 @@ class LangChainJudge(DeepEvalBaseLLM):
     def get_model_name(self) -> str:
         return f"app-llm:{get_settings().llm_model}"
 
+    def _structured(self, schema: type[BaseModel]) -> Any:
+        # Mirror app.llm.build_structured_model: on Ollama the strict JSON-schema
+        # grammar can fail to load the vocabulary for some models, so use the
+        # configured method (default function_calling).
+        model = self.load_model()
+        settings = get_settings()
+        if settings.llm_provider == "ollama":
+            return model.with_structured_output(
+                schema, method=settings.ollama_structured_output_method
+            )
+        return model.with_structured_output(schema)
+
     def generate(self, prompt: str, schema: type[BaseModel] | None = None, **kwargs: Any) -> Any:
         # DeepEval 4.x passes a Pydantic `schema` for its structured metric steps
         # and expects an instance of it back, so we must NOT fall back to plain
         # text here — let any structured-output error propagate with its message.
-        model = self.load_model()
         if schema is not None:
-            return model.with_structured_output(schema).invoke(prompt)
-        result = model.invoke(prompt)
+            return self._structured(schema).invoke(prompt)
+        result = self.load_model().invoke(prompt)
         return getattr(result, "content", str(result))
 
     async def a_generate(
         self, prompt: str, schema: type[BaseModel] | None = None, **kwargs: Any
     ) -> Any:
-        model = self.load_model()
         if schema is not None:
-            return await model.with_structured_output(schema).ainvoke(prompt)
-        result = await model.ainvoke(prompt)
+            return await self._structured(schema).ainvoke(prompt)
+        result = await self.load_model().ainvoke(prompt)
         return getattr(result, "content", str(result))

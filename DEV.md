@@ -115,14 +115,44 @@ LLM_PROVIDER=anthropic LLM_MODEL=claude-sonnet-4-6 ANTHROPIC_API_KEY=... \
 (`DEEPEVAL_PER_TASK_TIMEOUT_SECONDS_OVERRIDE`,
 `DEEPEVAL_TASK_GATHER_BUFFER_SECONDS_OVERRIDE` = 1200s).
 
-#### Известный флак: structured output на gpt-oss
+#### Structured output на Ollama (важно)
 
-Иногда Ollama на `gpt-oss` возвращает `failed to load model vocabulary required
-for format` при JSON-schema запросе. Приложение это переживает (логирует и
-отдаёт профиль с `confidence="low"`), а тест `build_profile` делает ограниченный
-ретрай и при стойком повторе **скипается** — это инфраструктурный флак, а не
-регрессия качества. `extract`-faithfulness устойчив: пустой профиль тривиально
-«верен» источнику.
+На этой сборке Ollama строгий путь **`json_schema`** (грамматика `format=<schema>`)
+ломается для нескольких моделей (и `gpt-oss:20b`, и `qwen3.5`) с ошибкой
+`failed to load model vocabulary required for format`. Поэтому для провайдера
+`ollama` приложение использует метод **`function_calling`** (настройка
+`OLLAMA_STRUCTURED_OUTPUT_METHOD`, см. `app/llm.py::build_structured_model`) —
+он обходит эту ошибку. Облачные провайдеры (anthropic/openai) используют метод
+LangChain по умолчанию.
+
+Дополнительно `build_chat_model` держит модель загруженной через `keep_alive`
+(`OLLAMA_KEEP_ALIVE`, по умолчанию `-1`) — это снижает латентность холодных
+загрузок, но **не** относится к ошибке выше.
+
+**Качество зависит от модели.** С `function_calling` модель должна аккуратно
+заполнить вложенную схему `PersonProfile` (поля `organization`, `platform`,
+`url`, объект `Location` …). `qwen3.5` справляется — выдаёт валидный профиль;
+`gpt-oss:20b` часто путает имена полей (`company`/`type`/`source`), профиль не
+проходит валидацию, и приложение откатывается на `confidence="low"`. Поэтому
+для прогона оценок рекомендуется модель с хорошим tool-calling:
+
+```bash
+LLM_MODEL=qwen3.5:latest uv run pytest -m "eval and not live"
+```
+
+**Провенанс не зависит от LLM.** Merge-шаг (`build_profile`) детерминированно
+переносит `evidence` из частичных профилей в итоговый (`_merge_evidence`,
+дедуп по URL): модель слияния иногда возвращает пустой `evidence`, поэтому
+источники добавляются кодом, а не на усмотрение LLM.
+
+Судья — тоже локальная модель: слабые модели иногда отдают невалидный JSON для
+GEval (`Evaluation LLM outputted an invalid JSON`). Для оценок берите модель
+покрепче (`qwen3.5`/cloud) — см. «Сменить судью» выше.
+
+Если модель всё же вернула пустой профиль, тест `build_profile` делает
+ограниченный ретрай и при стойком повторе **скипается** — это
+инфраструктурный/модельный флак, а не регрессия. `extract`-faithfulness
+устойчив: пустой профиль тривиально «верен» источнику.
 
 > Замечание: в `test_extract_faithfulness.py` оставлены `FaithfulnessMetric` +
 > `GEval(NoFabrication)`; `HallucinationMetric` убран из ассерта ради времени

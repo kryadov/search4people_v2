@@ -21,8 +21,8 @@ from app.graph.prompts import (
     NARROW_QUERY_PROMPT,
     SYSTEM_RESEARCHER,
 )
-from app.llm import build_chat_model
-from app.models.profile import Candidate, PersonProfile
+from app.llm import build_chat_model, build_structured_model
+from app.models.profile import Candidate, Evidence, PersonProfile
 from app.models.state import IdentityQuery, PeopleSearchState
 from app.tools.extract import extract_profile_from_page
 from app.tools.fetch import PageFetcher
@@ -364,7 +364,7 @@ async def build_profile(state: PeopleSearchState) -> dict[str, Any]:
         distinguishers=distinguishers or "(none)",
         partials=json.dumps(partials, ensure_ascii=False, indent=2)[:30_000],
     )
-    model = build_chat_model(temperature=0.0).with_structured_output(PersonProfile)
+    model = build_structured_model(PersonProfile, temperature=0.0)
     try:
         profile = await model.ainvoke(
             [SystemMessage(content=SYSTEM_RESEARCHER), HumanMessage(content=prompt)]
@@ -374,7 +374,33 @@ async def build_profile(state: PeopleSearchState) -> dict[str, Any]:
         profile = PersonProfile(full_name=full_name, confidence="low")
     if not isinstance(profile, PersonProfile):
         profile = PersonProfile.model_validate(profile)
+    # Provenance is deterministically known from the partials; the merge LLM
+    # drops the evidence array non-deterministically, so backfill it here.
+    profile = _merge_evidence(profile, partials)
     return {"profile": profile.model_dump(mode="json"), "phase": "confirm"}
+
+
+def _merge_evidence(
+    profile: PersonProfile, partials: list[dict[str, Any]]
+) -> PersonProfile:
+    """Union every source URL the partials cited into the profile's evidence.
+
+    The merge LLM sometimes returns an empty `evidence` list even though each
+    partial carries its source. Since that provenance is already known, add any
+    missing entries (deduped by URL) so the final profile always cites sources.
+    """
+    seen = {str(ev.url) for ev in profile.evidence}
+    for partial in partials:
+        for ev in partial.get("evidence") or []:
+            url = ev.get("url")
+            if not url or str(url) in seen:
+                continue
+            try:
+                profile.evidence.append(Evidence.model_validate(ev))
+            except Exception:
+                continue
+            seen.add(str(url))
+    return profile
 
 
 async def confirm_profile(state: PeopleSearchState) -> dict[str, Any]:
