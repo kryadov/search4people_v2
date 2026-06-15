@@ -38,6 +38,8 @@ dependencies = [
     "langsmith>=0.4.0",
     # A2A server
     "a2a-sdk>=0.3.0,<1.0",
+    # Guardrails (GLiNER2 + gliner-guard-omni); pulls transformers/torch
+    "gliner2>=1.0,<2.0",
 ]
 
 [project.scripts]
@@ -103,10 +105,11 @@ exclude = ["\\.venv", "data", "\\.chainlit"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-ra --strict-markers -m \"not eval\""
+addopts = "-ra --strict-markers -m \"not eval and not models\""
 markers = [
     "eval: LLM-quality evals via DeepEval (opt-in; run with `pytest -m eval`)",
     "live: hits the live web/search stack (opt-in; run with `pytest -m \"eval and live\"`)",
+    "models: tests that download/load real ML weights (slow; opt-in, run with `pytest -m models`)",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

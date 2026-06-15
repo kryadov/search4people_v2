@@ -171,6 +171,20 @@ class PeopleSearchExecutor(AgentExecutor):
             return
 
         state = dict(snapshot.values) if snapshot else {}
+        if state.get("guard_block"):
+            await updater.failed(
+                message=updater.new_agent_message(
+                    [
+                        Part(
+                            root=TextPart(
+                                text="Request rejected by content policy "
+                                "(harmful or prohibited use)."
+                            )
+                        )
+                    ]
+                )
+            )
+            return
         profile = state.get("profile")
         if state.get("phase") == "done" and state.get("user_decision") != "abort" and profile:
             await self._persist(thread_id, profile)

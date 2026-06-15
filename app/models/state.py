@@ -50,3 +50,5 @@ class PeopleSearchState(TypedDict, total=False):
     profile: dict[str, Any] | None
     user_decision: Literal["approve", "more", "switch_candidate", "abort"] | None
     selected_candidate_index: int | None
+    # Set by a guardrail block; routes the graph straight to END.
+    guard_block: dict[str, Any] | None

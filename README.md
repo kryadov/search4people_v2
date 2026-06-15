@@ -23,6 +23,7 @@ The agent collects a name, runs a preliminary site-restricted search on the top-
 - SQLite for users, profiles, source evidence, and LangGraph checkpoints in a single `data/app.db`.
 - `Dockerfile` + `docker-compose.yml` for a one-command deployment.
 - **A2A (Agent-to-Agent) server** (`uv run s4p-a2a`): exposes people-search as a remote A2A skill. Clarifying questions surface through the A2A `input-required` task state; the final profile is returned as a task artifact. Per-user Bearer-token auth.
+- **Guardrails** (GLiNER2 + `hivetrace/gliner-guard-omni`): blocks abuse requests (stalking/doxing/minor targeting), sanitizes prompt-injection in fetched pages, redacts PII in the final profile, and audits every decision to SQLite (`guard_events`). Enabled by default; configure via `GUARDRAILS_*` env vars or set `GUARDRAILS_BACKEND=noop` to disable.
 - Test suite with `pytest`, lint with `ruff`, type-check with `mypy`.
 
 ---
@@ -230,6 +231,18 @@ sequenceDiagram
 | `A2A_HOST` | Bind host for the A2A server | `0.0.0.0` |
 | `A2A_PORT` | Bind port for the A2A server | `8001` |
 | `A2A_PUBLIC_URL` | Base URL advertised in the Agent Card | host:port |
+| `GUARDRAILS_ENABLED` | Master switch for the guardrails layer | `true` |
+| `GUARDRAILS_BACKEND` | `local` (in-process gliner2) / `http` (sidecar) / `noop` (off) | `local` |
+| `GUARDRAILS_SAFETY_MODEL` | HF id of the safety model | `hivetrace/gliner-guard-omni` |
+| `GUARDRAILS_PII_MODEL` | HF id of the PII NER model | `fastino/gliner2-base-v1` |
+| `GUARDRAILS_DEVICE` | `auto` / `cpu` / `cuda` | `auto` |
+| `GUARDRAILS_FAIL_MODE` | `open` keeps searching if the model errors; `closed` blocks | `open` |
+| `GUARDRAILS_HTTP_URL` | Sidecar base URL (required for `backend=http`) | — |
+
+> **Guardrails models** load from HuggingFace on first use. Decisions are recorded
+> to the `guard_events` table in `data/app.db` for a GDPR/CCPA audit trail (the
+> stored snippet is itself PII-redacted, so the log cannot leak data). A backend
+> error fails *open* by default so a guard outage never blocks legitimate search.
 
 ---
 

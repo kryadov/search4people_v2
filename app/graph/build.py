@@ -14,6 +14,7 @@ from app.graph.nodes import (
     fetch_pages,
     narrow_query,
     preliminary_search,
+    route_after_collect,
     route_after_confirm,
     route_after_evaluate,
     route_after_narrow,
@@ -35,7 +36,11 @@ def build_graph() -> StateGraph:
     graph.add_node("confirm_profile", confirm_profile)
 
     graph.add_edge(START, "collect_identity")
-    graph.add_edge("collect_identity", "preliminary_search")
+    graph.add_conditional_edges(
+        "collect_identity",
+        route_after_collect,
+        {"preliminary_search": "preliminary_search", "blocked": END},
+    )
     graph.add_edge("preliminary_search", "evaluate_candidates")
 
     graph.add_conditional_edges(
@@ -56,6 +61,7 @@ def build_graph() -> StateGraph:
         {
             "preliminary_search": "preliminary_search",
             "fetch_pages": "fetch_pages",
+            "blocked": END,
         },
     )
     # After expanding, re-evaluate candidates.
