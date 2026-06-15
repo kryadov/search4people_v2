@@ -313,6 +313,11 @@ async def on_message(message: cl.Message) -> None:
     if await _handle_interrupt_and_render(state):
         return
 
+    # A guardrail blocked the request — show the refusal and stop.
+    if state.get("guard_block"):
+        await cl.Message(content=t("guard_blocked", _user_locale())).send()
+        return
+
     # Otherwise we're done — persist + report.
     if state.get("phase") == "done" and state.get("user_decision") != "abort":
         await _persist_if_done(state)

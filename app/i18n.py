@@ -90,6 +90,18 @@ _TRANSLATIONS: dict[str, dict[Locale, str]] = {
         "en": "Profile saved.",
         "ru": "Профиль сохранён.",
     },
+    "guard_blocked": {
+        "en": (
+            "I can't help with this request. It appears to involve harmful or "
+            "prohibited use (e.g. harassment, doxing, or targeting a minor). "
+            "This tool is for legitimate, lawful people-search only."
+        ),
+        "ru": (
+            "Не могу помочь с этим запросом. Похоже, он связан с недопустимым "
+            "использованием (преследование, доксинг или поиск несовершеннолетних). "
+            "Инструмент предназначен только для законного поиска людей."
+        ),
+    },
     "language_set": {
         "en": "Language set to English.",
         "ru": "Язык переключён на русский.",
