@@ -3,10 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import io
 from typing import Any
 
 from app.guardrails.config import GuardrailsSettings
 from app.guardrails.types import GuardModel, Span
+
+# Model-level inclusion floor. Kept below every policy threshold (all >= 0.5) so
+# the model always returns anything the policy might act on; the per-category
+# policy thresholds remain the single source of truth.
+_MODEL_THRESHOLD = 0.3
+
+# Single task name passed to classify_text; the score dict is keyed under it.
+_TASK = "guard"
 
 
 class LocalGlinerBackend:
@@ -26,7 +36,11 @@ class LocalGlinerBackend:
             kwargs: dict[str, Any] = {}
             if self._settings.device != "auto":
                 kwargs["map_location"] = self._settings.device
-            self._models[which] = GLiNER2.from_pretrained(name, **kwargs)
+            # gliner2 prints a config banner with an emoji on load, which raises
+            # UnicodeEncodeError on a non-UTF-8 console (e.g. Windows cp1252).
+            # Swallow that banner so model loading never crashes on stdout.
+            with contextlib.redirect_stdout(io.StringIO()):
+                self._models[which] = GLiNER2.from_pretrained(name, **kwargs)
         return self._models[which]
 
     async def classify(
@@ -40,10 +54,11 @@ class LocalGlinerBackend:
         m = self._model(model)
         result = m.classify_text(
             text,
-            schema={"guard": {"labels": labels, "multi_label": True, "cls_threshold": 0.0}},
+            {_TASK: {"labels": labels, "multi_label": True}},
+            threshold=_MODEL_THRESHOLD,
             include_confidence=True,
         )
-        return _parse_classify(result.get("guard"), labels)
+        return _parse_classify(result.get(_TASK), labels)
 
     async def extract(
         self, text: str, entity_types: list[str], *, model: GuardModel = "pii"
@@ -55,7 +70,11 @@ class LocalGlinerBackend:
     ) -> list[Span]:
         m = self._model(model)
         result = m.extract_entities(
-            text, labels=entity_types, include_spans=True, include_confidence=True
+            text,
+            entity_types,
+            threshold=_MODEL_THRESHOLD,
+            include_spans=True,
+            include_confidence=True,
         )
         out: list[Span] = []
         for label, items in (result.get("entities") or {}).items():

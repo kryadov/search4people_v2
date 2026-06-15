@@ -1,4 +1,4 @@
-from app.guardrails.detectors import IntentDetector, PIIDetector, SafetyDetector
+from app.guardrails.detectors import PIIDetector, SafetyDetector
 from app.guardrails.types import Span
 from tests.guardrails.fakes import FakeBackend
 
@@ -28,9 +28,9 @@ async def test_pii_detector_emits_spans():
     assert findings[0].spans == [(8, 15)]
 
 
-async def test_intent_detector_flags_minor_target():
-    backend = FakeBackend(scores={"minor": 0.8, "stalking": 0.2})
-    det = IntentDetector(backend)
-    findings = await det.detect("find this 14 year old girl")
-    cats = {f.category for f in findings}
+async def test_safety_detector_flags_harmful_and_minor():
+    backend = FakeBackend(scores={"stalking": 0.9, "child_exploitation": 0.8})
+    det = SafetyDetector(backend)
+    cats = {f.category for f in await det.detect("...")}
+    assert "harmful_intent" in cats
     assert "minor_target" in cats

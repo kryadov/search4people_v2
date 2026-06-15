@@ -234,7 +234,7 @@ sequenceDiagram
 | `GUARDRAILS_ENABLED` | Master switch for the guardrails layer | `true` |
 | `GUARDRAILS_BACKEND` | `local` (in-process gliner2) / `http` (sidecar) / `noop` (off) | `local` |
 | `GUARDRAILS_SAFETY_MODEL` | HF id of the safety model | `hivetrace/gliner-guard-omni` |
-| `GUARDRAILS_PII_MODEL` | HF id of the NER/intent model | `fastino/gliner2-base-v1` |
+| `GUARDRAILS_PII_MODEL` | HF id of the PII NER model | `fastino/gliner2-base-v1` |
 | `GUARDRAILS_DEVICE` | `auto` / `cpu` / `cuda` | `auto` |
 | `GUARDRAILS_FAIL_MODE` | `open` keeps searching if the model errors; `closed` blocks | `open` |
 | `GUARDRAILS_HTTP_URL` | Sidecar base URL (required for `backend=http`) | — |

@@ -39,17 +39,15 @@ PII_ENTITY_TYPES = [
     "social_account",
 ]
 
-# OSINT intent labels for the general gliner2 model (zero-shot classification).
-_INTENT_LABELS: dict[str, GuardCategory] = {
-    "stalking": "harmful_intent",
-    "doxxing": "harmful_intent",
-    "harassment": "harmful_intent",
-    "minor": "minor_target",
-}
-
 
 class SafetyDetector:
-    """gliner-guard-omni: jailbreak / injection / harmful / toxicity."""
+    """gliner-guard-omni: jailbreak / injection / harmful / toxicity.
+
+    This model is trained for safety, so it carries the OSINT abuse-intent
+    signal too (harassment / stalking / doxxing / child_exploitation). A separate
+    zero-shot intent pass on the general gliner2 model was tried and dropped: it
+    false-positived on benign name+job queries while adding no coverage the guard
+    model lacks (verified under tests/guardrails/test_local_backend.py)."""
 
     def __init__(self, backend: GuardBackend) -> None:
         self._backend = backend
@@ -90,20 +88,3 @@ class PIIDetector:
             )
             for s in spans
         ]
-
-
-class IntentDetector:
-    """gliner2 zero-shot classification of OSINT request intent."""
-
-    def __init__(self, backend: GuardBackend) -> None:
-        self._backend = backend
-
-    async def detect(self, text: str) -> list[GuardFinding]:
-        scores = await self._backend.classify(text, list(_INTENT_LABELS), model="pii")
-        out: list[GuardFinding] = []
-        for label, score in scores.items():
-            category = _INTENT_LABELS.get(label)
-            if category is None or score <= 0.0:
-                continue
-            out.append(GuardFinding(category=category, score=score, label=label))
-        return out

@@ -7,7 +7,7 @@ import structlog
 from app.guardrails.audit import record_events
 from app.guardrails.backends.base import GuardBackend
 from app.guardrails.config import GuardrailsSettings
-from app.guardrails.detectors import IntentDetector, PIIDetector, SafetyDetector
+from app.guardrails.detectors import PIIDetector, SafetyDetector
 from app.guardrails.policy import apply
 from app.guardrails.types import GuardVerdict
 
@@ -24,7 +24,6 @@ class Guardrails:
         self._settings = settings
         self._safety = SafetyDetector(backend)
         self._pii = PIIDetector(backend)
-        self._intent = IntentDetector(backend)
 
     async def check_input(
         self, text: str, *, thread_id: str | None = None, user_id: int | None = None
@@ -32,10 +31,7 @@ class Guardrails:
         if not self._settings.check_input or not text.strip():
             return GuardVerdict(action="allow")
         try:
-            findings = [
-                *await self._safety.detect(text),
-                *await self._intent.detect(text),
-            ]
+            findings = await self._safety.detect(text)
         except Exception as exc:
             return self._on_error("input", exc)
         verdict = apply(findings, self._settings.policy, text)

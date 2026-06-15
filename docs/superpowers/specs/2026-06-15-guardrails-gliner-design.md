@@ -56,7 +56,7 @@ app/guardrails/
     local.py         # in-process: gliner2 + gliner-guard-omni via transformers
     http.py          # sidecar client (httpx)
     noop.py          # disabled / no torch — always allow
-  detectors.py       # SafetyDetector, PIIDetector, IntentDetector
+  detectors.py       # SafetyDetector, PIIDetector
   policy.py          # findings -> verdict per config
   engine.py          # Guardrails: check_input / scan_content / redact_profile + audit
   audit.py           # SQLite guard_events writer
@@ -74,11 +74,19 @@ app/guardrails/
   on a fake backend without torch.
 - **Detectors** — translate backend output into `GuardFinding`s:
   - `SafetyDetector` (guard-omni) → `jailbreak`, `prompt_injection`,
-    `harmful_intent`, `toxicity`.
+    `harmful_intent` (harassment / stalking / doxxing), `minor_target`
+    (child_exploitation), `toxicity`.
   - `PIIDetector` (GLiNER2 NER) → `pii` findings with entity-type labels
     (email, phone, address, id, …) and spans.
-  - `IntentDetector` (GLiNER2 zero-shot classification) → OSINT intent:
-    legitimate / stalking / doxing / minor (`harmful_intent`, `minor_target`).
+
+  > **Resolved during real-model verification (see below):** a third
+  > `IntentDetector` running zero-shot OSINT-intent labels on the general
+  > `gliner2-base` model was specced but **dropped**. It false-positived on
+  > benign name+job queries (blocking "John Smith software engineer London")
+  > while adding no coverage guard-omni lacks — guard-omni is safety-trained and
+  > already carries the abuse-intent signal. `gliner2-base` is therefore used
+  > only for PII NER (where it scored ~0.99), and `gliner-guard-omni` handles all
+  > classification. Both models remain in use.
 - **Policy** (`policy.py`) — pure function mapping findings → verdict by config.
 - **Engine** (`engine.py`) — facade with `check_input`, `scan_content`,
   `redact_profile`; writes audit.
@@ -242,9 +250,27 @@ pytest, following the repo conventions:
 - Real models are **not** loaded in CI (slow/heavy) — gated behind an opt-in
   `@pytest.mark.models` marker.
 
-## Open items (resolve at implementation time)
+## Open items — resolved during implementation
 
-- Exact GLiNER2 model id / package import surface and the label taxonomy each
-  model emits (map model labels → `GuardCategory`).
-- Confirm `gliner-guard-omni`'s output format (label set + score semantics).
-- Whether `http` sidecar lands in this iteration or is stubbed (interface only).
+Verified by running real weights (`uv run pytest -m models`):
+
+- **Package / version:** `gliner2>=1.0` (1.3.1 installed); both models load via
+  `gliner2.GLiNER2.from_pretrained`. The published README docs were for an older
+  API — the real 1.3.x surface is:
+  - `extract_entities(text, entity_types, threshold=, include_spans=, include_confidence=)`
+    → `{"entities": {type: [{"text","start","end","confidence"}]}}`.
+  - `classify_text(text, tasks={task: {"labels": [...], "multi_label": True}}, threshold=, include_confidence=)`
+    → `{task: [{"label","confidence"}]}` (multi-label) — **not** the `schema=`
+    kwarg the docs implied. `local.py` was corrected to match.
+- **Label taxonomy:** guard-omni responds to our zero-shot label strings and they
+  map cleanly — injection→`instruction_override`/`jailbreak(_persona)`,
+  harmful→`doxxing`/`stalking`; benign scored ~0.02. PII NER returned
+  email/phone/address with ~0.99 confidence and correct spans.
+- **Model-level threshold:** `local.py` queries with `threshold=0.3` (below every
+  policy threshold, all ≥0.5) so the per-category policy stays the single gate.
+- **Windows stdout:** gliner2 prints an emoji config banner on load that raises
+  `UnicodeEncodeError` on a cp1252 console; `local.py` loads under
+  `redirect_stdout` to swallow it.
+- **IntentDetector dropped** — see the Detectors note above.
+- **`http` sidecar** shipped as an interface + client (not exercised by a live
+  service in this iteration).
