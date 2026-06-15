@@ -57,5 +57,5 @@ async def test_redact_profile_in_build(monkeypatch):
     eng = _install(
         monkeypatch, FakeBackend(entities=[Span("email", 0, 7, "a@b.com", 0.9)])
     )
-    redacted, v = await eng.redact_profile({"full_name": "X", "bio": "a@b.com is me"})
+    redacted, _ = await eng.redact_profile({"full_name": "X", "bio": "a@b.com is me"})
     assert "[redacted:email]" in redacted["bio"]

@@ -11,17 +11,19 @@ from functools import lru_cache
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from app.guardrails.backends.base import GuardBackend
     from app.guardrails.engine import Guardrails, NoOpGuardrails
 
 
 @lru_cache(maxsize=1)
-def get_guardrails() -> "Guardrails | NoOpGuardrails":
+def get_guardrails() -> Guardrails | NoOpGuardrails:
     from app.config import get_settings
     from app.guardrails.engine import Guardrails, NoOpGuardrails
 
     g = get_settings().guardrails
     if not g.enabled or g.backend == "noop":
         return NoOpGuardrails()
+    backend: GuardBackend
     if g.backend == "http":
         from app.guardrails.backends.http import HttpBackend
 

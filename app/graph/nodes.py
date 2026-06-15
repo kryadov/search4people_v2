@@ -16,12 +16,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.types import interrupt
 
 from app.config import get_settings
-from app.guardrails import get_guardrails
 from app.graph.prompts import (
     MERGE_PROFILE_PROMPT,
     NARROW_QUERY_PROMPT,
     SYSTEM_RESEARCHER,
 )
+from app.guardrails import get_guardrails
 from app.llm import build_chat_model, build_structured_model
 from app.models.profile import Candidate, Evidence, PersonProfile
 from app.models.state import IdentityQuery, PeopleSearchState
@@ -124,7 +124,7 @@ async def collect_identity(state: PeopleSearchState) -> dict[str, Any]:
         # Resume value is a dict like {"first_name": "...", "last_name": "..."}.
         if isinstance(payload, dict):
             query.update({k: v for k, v in payload.items() if v})
-    full_name = " ".join(filter(None, [query.get("first_name"), query.get("last_name")]))
+    full_name = " ".join(str(p) for p in (query.get("first_name"), query.get("last_name")) if p)
     if full_name:
         verdict = await get_guardrails().check_input(full_name)
         if verdict.blocked:
