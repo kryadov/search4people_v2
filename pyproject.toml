@@ -36,10 +36,14 @@ dependencies = [
     # Logging + optional tracing
     "structlog>=24.4.0",
     "langsmith>=0.4.0",
+    # A2A server
+    "a2a-sdk>=0.3.0,<1.0",
 ]
 
 [project.scripts]
 s4p-create-user = "app.scripts.create_user:main"
+s4p-create-token = "app.scripts.create_token:main"
+s4p-a2a = "app.a2a.server:main"
 
 [dependency-groups]
 dev = [
