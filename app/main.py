@@ -12,18 +12,24 @@ from __future__ import annotations
 import contextlib
 import re
 import uuid
-from typing import Any
+from typing import Any, cast
 
 import chainlit as cl
 import structlog
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-from langgraph.types import Command
 
 from app.auth import password_auth  # noqa: F401 - registers @cl.password_auth_callback
 from app.config import get_settings
 from app.db.connection import init_db
 from app.db.profiles import save_profile
 from app.db.users import set_user_locale
+from app.graph.bridge import (
+    PendingInput,
+    ResumeAnswer,
+    build_resume_command,
+    parse_identity_text,
+    read_pending_input,
+)
 from app.graph.build import build_graph
 from app.i18n import DEFAULT_LOCALE, Locale, detect_locale_command, t
 from app.models.profile import PersonProfile
@@ -125,17 +131,7 @@ def _parse_pick_index(text: str, count: int) -> int | None:
     return None
 
 
-def _parse_identity(message: str) -> IdentityQuery:
-    """Very small heuristic: first token = first_name, rest = last_name."""
-    tokens = [t for t in message.strip().split() if t]
-    if not tokens:
-        return IdentityQuery()
-    if len(tokens) == 1:
-        return IdentityQuery(first_name=tokens[0])
-    return IdentityQuery(first_name=tokens[0], last_name=" ".join(tokens[1:]))
-
-
-async def _stream_graph(initial_input: PeopleSearchState | Command) -> dict[str, Any]:
+async def _stream_graph(initial_input: Any) -> dict[str, Any]:
     """Run the graph, emit per-node steps, return the final state snapshot."""
     graph = await _ensure_graph()
     config = _thread_config()
@@ -157,57 +153,50 @@ async def _stream_graph(initial_input: PeopleSearchState | Command) -> dict[str,
 
 
 async def _handle_interrupt_and_render(state: dict[str, Any]) -> bool:
-    """Look at the current snapshot. If the graph is paused on an interrupt,
-    render the matching prompt to the user and return True (so on_message
-    handles the next user reply as a Resume).
-    """
+    """If the graph is paused on an interrupt, render the matching Chainlit
+    prompt and return True (so the next user reply is treated as a resume)."""
     graph = await _ensure_graph()
     config = _thread_config()
     snapshot = await graph.aget_state(config)
-    interrupts = snapshot.tasks and any(t.interrupts for t in snapshot.tasks)
-    if not interrupts:
+    locale = _user_locale()
+    pending = read_pending_input(snapshot, locale)
+    if pending is None:
         return False
 
-    locale = _user_locale()
-    for task in snapshot.tasks:
-        for itr in task.interrupts:
-            payload = itr.value if hasattr(itr, "value") else itr
-            kind = (payload or {}).get("kind") if isinstance(payload, dict) else None
-            if kind == "ask_identity":
-                await cl.Message(content=t("ask_who", locale)).send()
-                cl.user_session.set("awaiting", "identity")
-                return True
-            if kind == "ask_narrowing":
-                pd = payload if isinstance(payload, dict) else {}
-                question = pd.get("question")
-                attribute = pd.get("attribute")
-                candidates = pd.get("candidates") or []
-                options = pd.get("options") or []
+    if pending.kind == "ask_identity":
+        await cl.Message(content=pending.question).send()
+        cl.user_session.set("awaiting", "identity")
+        return True
 
-                parts: list[str] = []
-                if candidates:
-                    parts.append(t("candidates_heading", locale, count=len(candidates)))
-                    parts.append(_format_candidate_list(candidates))
-                prefix = t("ask_more_details_prefix", locale)
-                parts.append(f"{prefix} {question or ''}".strip())
-                if options and attribute:
-                    parts.append(t("options_heading", locale, attribute=attribute))
-                    parts.append("\n".join(f"- {o}" for o in options))
-                parts.append(t("narrowing_reply_hint", locale))
+    if pending.kind == "ask_narrowing":
+        candidates = pending.data.get("candidates") or []
+        options = pending.data.get("options") or []
+        attribute = pending.attribute
+        parts: list[str] = []
+        if candidates:
+            parts.append(t("candidates_heading", locale, count=len(candidates)))
+            parts.append(_format_candidate_list(candidates))
+        prefix = t("ask_more_details_prefix", locale)
+        parts.append(f"{prefix} {pending.question or ''}".strip())
+        if options and attribute:
+            parts.append(t("options_heading", locale, attribute=attribute))
+            parts.append("\n".join(f"- {o}" for o in options))
+        parts.append(t("narrowing_reply_hint", locale))
+        await cl.Message(content="\n\n".join(parts)).send()
+        cl.user_session.set("awaiting", "narrowing")
+        cl.user_session.set("narrowing_attribute", attribute)
+        cl.user_session.set("narrowing_candidate_count", len(candidates))
+        return True
 
-                await cl.Message(content="\n\n".join(parts)).send()
-                cl.user_session.set("awaiting", "narrowing")
-                cl.user_session.set("narrowing_attribute", attribute)
-                cl.user_session.set("narrowing_candidate_count", len(candidates))
-                return True
-            if kind == "confirm_profile":
-                profile_raw = (payload or {}).get("profile") if isinstance(payload, dict) else None
-                if profile_raw:
-                    profile = PersonProfile.model_validate(profile_raw)
-                    await render_profile_message(profile, locale).send()
-                await cl.Message(content=t("confirm_profile", locale)).send()
-                cl.user_session.set("awaiting", "confirm")
-                return True
+    if pending.kind == "confirm_profile":
+        profile_raw = pending.data.get("profile")
+        if profile_raw:
+            profile = PersonProfile.model_validate(profile_raw)
+            await render_profile_message(profile, locale).send()
+        await cl.Message(content=pending.question).send()
+        cl.user_session.set("awaiting", "confirm")
+        return True
+
     return False
 
 
@@ -269,10 +258,10 @@ async def on_message(message: cl.Message) -> None:
         return
 
     awaiting = cl.user_session.get("awaiting")
-    graph_input: PeopleSearchState | Command
+    graph_input: Any
 
     if awaiting == "identity":
-        parsed = _parse_identity(text)
+        parsed = parse_identity_text(text)
         if "first_name" not in parsed or "last_name" not in parsed:
             await cl.Message(content=t("ask_who", _user_locale())).send()
             return
@@ -280,34 +269,42 @@ async def on_message(message: cl.Message) -> None:
         config = _thread_config()
         graph = await _ensure_graph()
         snapshot = await graph.aget_state(config)
-        if snapshot and snapshot.tasks and any(t.interrupts for t in snapshot.tasks):
-            graph_input = Command(resume=parsed)
+        pending = read_pending_input(snapshot, _user_locale())
+        if pending is not None:
+            graph_input = build_resume_command(pending, ResumeAnswer(identity=parsed))
         else:
-            graph_input = PeopleSearchState(query=parsed, locale=_user_locale())
+            graph_input = PeopleSearchState(query=cast(IdentityQuery, parsed), locale=_user_locale())
     elif awaiting == "narrowing":
         attribute = cl.user_session.get("narrowing_attribute")
         cand_count = int(cl.user_session.get("narrowing_candidate_count") or 0)
         picked = _parse_pick_index(text, cand_count) if cand_count else None
+        pending = PendingInput(
+            kind="ask_narrowing", question="", data={}, candidate_count=cand_count, attribute=attribute
+        )
         if picked is not None:
-            graph_input = Command(resume={"pick_index": picked})
+            answer = ResumeAnswer(pick_index=picked)
         elif attribute:
-            graph_input = Command(resume={"attribute": attribute, "value": text})
+            answer = ResumeAnswer(attribute_value=(attribute, text))
         else:
-            graph_input = Command(resume={"extra": text})
+            answer = ResumeAnswer(extra=text)
+        graph_input = build_resume_command(pending, answer)
     elif awaiting == "confirm":
         normalized = text.lower()
         if normalized in {"yes", "y", "да", "д", "ok", "ок"}:
-            decision: dict[str, Any] = {"decision": "approve"}
+            answer = ResumeAnswer(decision="approve")
         elif normalized in {"no", "n", "нет", "н"}:
-            decision = {"decision": "more"}
+            answer = ResumeAnswer(decision="more")
         else:
-            decision = {"decision": "more", "extra": text}
-        graph_input = Command(resume=decision)
+            answer = ResumeAnswer(decision="more", extra=text)
+        pending = PendingInput(
+            kind="confirm_profile", question="", data={}, candidate_count=0, attribute=None
+        )
+        graph_input = build_resume_command(pending, answer)
     else:
         # No active expectation — treat as a fresh start.
         cl.user_session.set("thread_id", str(uuid.uuid4()))
-        parsed = _parse_identity(text)
-        graph_input = PeopleSearchState(query=parsed, locale=_user_locale())
+        parsed = parse_identity_text(text)
+        graph_input = PeopleSearchState(query=cast(IdentityQuery, parsed), locale=_user_locale())
 
     cl.user_session.set("awaiting", None)
     state = await _stream_graph(graph_input)
