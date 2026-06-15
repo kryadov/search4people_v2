@@ -259,9 +259,10 @@ app/
 ├── models/              # PersonProfile + graph state
 ├── a2a/                 # A2A server: executor, agent card, auth, task store
 ├── graph/               # LangGraph build + nodes + prompts + bridge (headless interrupt/resume)
+├── guardrails/          # GLiNER2/guard-omni: backends, detectors, policy, engine, audit
 ├── tools/               # search / fetch / extract / robots / rate_limiter
 ├── ui/                  # profile card + cl.Step helpers
-└── scripts/create_user.py  # `uv run s4p-create-user`
+└── scripts/             # `uv run s4p-create-user`, `uv run s4p-create-token`
 tests/                   # pytest suite (tools mocked via respx, graph with a stubbed LLM)
 data/                    # runtime SQLite lives here (git-ignored)
 ```
