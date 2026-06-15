@@ -42,3 +42,9 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+
+CREATE TABLE IF NOT EXISTS a2a_tasks (
+    task_id    TEXT PRIMARY KEY,
+    task_json  TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
