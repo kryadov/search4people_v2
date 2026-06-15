@@ -16,6 +16,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.types import interrupt
 
 from app.config import get_settings
+from app.guardrails import get_guardrails
 from app.graph.prompts import (
     MERGE_PROFILE_PROMPT,
     NARROW_QUERY_PROMPT,
@@ -123,6 +124,11 @@ async def collect_identity(state: PeopleSearchState) -> dict[str, Any]:
         # Resume value is a dict like {"first_name": "...", "last_name": "..."}.
         if isinstance(payload, dict):
             query.update({k: v for k, v in payload.items() if v})
+    full_name = " ".join(filter(None, [query.get("first_name"), query.get("last_name")]))
+    if full_name:
+        verdict = await get_guardrails().check_input(full_name)
+        if verdict.blocked:
+            return {"guard_block": {"reason": verdict.reason, "point": "input"}, "phase": "done"}
     settings = get_settings()
     return {
         "query": query,
@@ -133,6 +139,13 @@ async def collect_identity(state: PeopleSearchState) -> dict[str, Any]:
         "visited_urls": state.get("visited_urls", []),
         "fetched_pages": state.get("fetched_pages", []),
     }
+
+
+def route_after_collect(state: PeopleSearchState) -> str:
+    """Stop early if a guardrail blocked the identity query; else search."""
+    if state.get("guard_block"):
+        return "blocked"
+    return "preliminary_search"
 
 
 async def preliminary_search(state: PeopleSearchState) -> dict[str, Any]:
@@ -256,11 +269,18 @@ async def narrow_query(state: PeopleSearchState) -> dict[str, Any]:
     elif isinstance(answer, str):
         new_query["extra"] = answer
 
+    probe = " ".join(str(v) for v in new_query.values() if v)
+    verdict = await get_guardrails().check_input(probe)
+    if verdict.blocked:
+        return {"guard_block": {"reason": verdict.reason, "point": "input"}, "phase": "done"}
+
     return {"query": new_query, "phase": "preliminary"}
 
 
 def route_after_narrow(state: PeopleSearchState) -> str:
     """Either jump straight to fetch (user picked a candidate) or re-search."""
+    if state.get("guard_block"):
+        return "blocked"
     if state.get("phase") == "fetch":
         return "fetch_pages"
     return "preliminary_search"
@@ -318,18 +338,24 @@ async def fetch_pages(state: PeopleSearchState) -> dict[str, Any]:
             result = await fetcher.fetch(url)
             if not result.markdown:
                 return None
+            markdown = result.markdown
+            # Untrusted page content is a prompt-injection vector before it
+            # reaches the extraction LLM; sanitize anything the guard flags.
+            scan = await get_guardrails().scan_content(markdown)
+            if scan.transformed_text is not None:
+                markdown = scan.transformed_text
             extracted = await extract_profile_from_page(
                 full_name=full_name,
                 distinguishers=distinguishers,
                 url=url,
-                markdown=result.markdown,
+                markdown=markdown,
                 platform=c.get("platform"),
             )
             return {
                 "url": url,
                 "platform": c.get("platform"),
                 "snippet": c.get("snippet"),
-                "markdown_len": len(result.markdown),
+                "markdown_len": len(markdown),
                 "partial": extracted.model_dump(mode="json"),
             }
 
@@ -354,10 +380,9 @@ async def build_profile(state: PeopleSearchState) -> dict[str, Any]:
     distinguishers = _distinguishers(state["query"])
     partials = [p["partial"] for p in state.get("fetched_pages") or []]
     if not partials:
-        return {
-            "profile": PersonProfile(full_name=full_name, confidence="low").model_dump(mode="json"),
-            "phase": "confirm",
-        }
+        empty = PersonProfile(full_name=full_name, confidence="low").model_dump(mode="json")
+        empty, _ = await get_guardrails().redact_profile(empty)
+        return {"profile": empty, "phase": "confirm"}
 
     prompt = MERGE_PROFILE_PROMPT.format(
         full_name=full_name,
@@ -377,7 +402,9 @@ async def build_profile(state: PeopleSearchState) -> dict[str, Any]:
     # Provenance is deterministically known from the partials; the merge LLM
     # drops the evidence array non-deterministically, so backfill it here.
     profile = _merge_evidence(profile, partials)
-    return {"profile": profile.model_dump(mode="json"), "phase": "confirm"}
+    profile_dict = profile.model_dump(mode="json")
+    profile_dict, _ = await get_guardrails().redact_profile(profile_dict)
+    return {"profile": profile_dict, "phase": "confirm"}
 
 
 def _merge_evidence(
