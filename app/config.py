@@ -75,6 +75,13 @@ class Settings(BaseSettings):
     # Storage
     db_path: Path = Path("data/app.db")
 
+    # A2A server
+    a2a_host: str = "0.0.0.0"
+    a2a_port: int = 8001
+    # Public base URL advertised in the Agent Card `url` field. Falls back to
+    # http://<host>:<port>/ when unset.
+    a2a_public_url: str | None = None
+
     # Chainlit
     chainlit_auth_secret: str = "replace-me-with-a-long-random-secret"
 
