@@ -202,7 +202,7 @@ sequenceDiagram
         S-->>C: Task completed<br/>artifact = PersonProfile
     end
 
-    note over S,G: A2A input-required ⇄ LangGraph interrupt();<br/>message/stream emits submitted → working… → input-required
+    note over S,G: A2A input-required maps onto LangGraph interrupt() — message/stream emits submitted, working, input-required
 ```
 
 ---
