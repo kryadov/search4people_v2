@@ -115,8 +115,12 @@ def main() -> None:
 
     import asyncio
 
-    app = asyncio.run(build_app())
-    uvicorn.run(app, host=settings.a2a_host, port=settings.a2a_port)
+    async def _serve() -> None:
+        app = await build_app()
+        config = uvicorn.Config(app, host=settings.a2a_host, port=settings.a2a_port)
+        await uvicorn.Server(config).serve()
+
+    asyncio.run(_serve())
 
 
 if __name__ == "__main__":
