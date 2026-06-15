@@ -83,6 +83,29 @@ def _print_task(label: str, task: dict[str, object]) -> None:
                 print("  artifact:", json.dumps(part["data"], ensure_ascii=False)[:800])
 
 
+async def stream_demo(client: httpx.AsyncClient) -> None:
+    """Show message/stream: print interim events as the graph runs."""
+    print("\n=== message/stream (interim events) ===")
+    payload = {
+        "jsonrpc": "2.0",
+        "id": os.urandom(4).hex(),
+        "method": "message/stream",
+        "params": {"message": _text_message("Grace Hopper", None, None)},
+    }
+    async with client.stream("POST", "/", json=payload, headers=_headers()) as resp:
+        resp.raise_for_status()
+        async for line in resp.aiter_lines():
+            line = line.strip()
+            if not line.startswith("data:"):
+                continue
+            envelope = json.loads(line[len("data:"):].strip())
+            result = envelope.get("result") or {}
+            # Result is a Task or a status/artifact update event; print its state if present.
+            status = result.get("status") or {}
+            state = status.get("state") or result.get("kind")
+            print("  event:", state)
+
+
 async def main() -> None:
     if not TOKEN:
         raise SystemExit("Set A2A_DEMO_TOKEN (see the module docstring).")
@@ -112,6 +135,7 @@ async def main() -> None:
             _print_task("after approve", task)
 
         print("\nFinal state:", task["status"]["state"])
+        await stream_demo(client)
 
 
 if __name__ == "__main__":

@@ -131,3 +131,27 @@ async def test_execute_completes_with_profile(monkeypatch):
     assert saved["full_name"] == "Jane Doe"
     # An artifact and a terminal status were enqueued.
     assert queue.events  # at least task + status/artifact events recorded
+
+
+@pytest.mark.asyncio
+async def test_cancel_aborts_graph_when_on_confirm(monkeypatch):
+    resumed_with = {}
+
+    class FakeGraph:
+        async def aget_state(self, config):
+            interrupt = SimpleNamespace(value={"kind": "confirm_profile", "profile": {}, "candidates": [], "locale": "en"})
+            task = SimpleNamespace(interrupts=[interrupt])
+            return SimpleNamespace(tasks=[task], values={})
+
+        async def astream(self, inp, config, stream_mode):
+            resumed_with["resume"] = inp.resume  # Command.resume
+            if False:
+                yield {}
+            return
+
+    executor = ex.PeopleSearchExecutor(FakeGraph(), current_user_id=lambda: 1)
+    queue = _RecordingQueue()
+    pre_task = SimpleNamespace(id="task-x", context_id="ctx-x")
+    ctx = SimpleNamespace(message=_msg([Part(root=TextPart(text="stop"))]), current_task=pre_task)
+    await executor.cancel(ctx, queue)
+    assert resumed_with.get("resume") == {"decision": "abort"}

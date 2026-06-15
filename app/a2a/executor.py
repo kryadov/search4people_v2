@@ -8,6 +8,8 @@ the final PersonProfile onto a completed-task artifact. Pure helpers
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Callable
 from typing import Any, cast
 
 import structlog
@@ -115,7 +117,7 @@ def profile_to_artifact_parts(profile: dict[str, Any]) -> list[Part]:
 class PeopleSearchExecutor(AgentExecutor):
     """Drives the compiled people-search graph for one A2A task."""
 
-    def __init__(self, graph: Any, current_user_id: Any) -> None:
+    def __init__(self, graph: Any, current_user_id: Callable[[], int | None]) -> None:
         # `graph` is the compiled LangGraph; `current_user_id` is a zero-arg
         # callable returning the authenticated user_id (the auth contextvar
         # getter) so the executor stays decoupled from the auth module.
@@ -123,7 +125,9 @@ class PeopleSearchExecutor(AgentExecutor):
         self._current_user_id = current_user_id
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
-        message: Message = context.message  # type: ignore[assignment]
+        if context.message is None:
+            return
+        message = context.message
         task = context.current_task
         if task is None:
             task = new_task(message)
@@ -186,6 +190,16 @@ class PeopleSearchExecutor(AgentExecutor):
         if task is None:
             return
         updater = TaskUpdater(event_queue, task.id, task.context_id)
+        config = {"configurable": {"thread_id": task.id}}
+        snapshot = await self._graph.aget_state(config)
+        pending = read_pending_input(snapshot, "en")
+        if pending is not None and pending.kind == "confirm_profile":
+            abort_cmd = build_resume_command(pending, ResumeAnswer(decision="abort"))
+            with contextlib.suppress(Exception):
+                async for _ in self._graph.astream(
+                    abort_cmd, config=config, stream_mode="updates"
+                ):
+                    pass
         await updater.cancel()
 
     async def _persist(self, thread_id: str, profile_raw: dict[str, Any]) -> None:
