@@ -163,6 +163,48 @@ It fetches the Agent Card, sends a name, answers the `input-required` narrowing 
 confirmation prompts, and prints the resulting profile artifact — mirroring how the
 LangGraph `interrupt()` pauses map onto A2A `input-required`.
 
+The end-to-end check walks four phases (this is exactly what `examples/a2a_demo.py` does):
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as A2A client<br/>(examples/a2a_demo.py)
+    participant S as s4p-a2a server
+    participant G as LangGraph<br/>(graph + SQLite checkpointer)
+
+    rect rgb(235, 244, 255)
+        note over C,S: Phase 1 — Discover
+        C->>S: GET /.well-known/agent-card.json (public)
+        S-->>C: AgentCard (skill: people_search)
+    end
+
+    rect rgb(255, 247, 230)
+        note over C,G: Phase 2 — Start
+        C->>S: message/send "Jane Smith" + Bearer token
+        S->>G: start graph (thread_id = taskId)
+        G-->>S: interrupt() ask_narrowing
+        S-->>C: Task input-required<br/>Text(question) + Data(candidates)
+    end
+
+    rect rgb(255, 247, 230)
+        note over C,G: Phase 3 — Narrow
+        C->>S: message/send {pick_index: 0} (same taskId)
+        S->>G: Command(resume)
+        G-->>S: interrupt() confirm_profile
+        S-->>C: Task input-required<br/>Text(question) + Data(profile)
+    end
+
+    rect rgb(230, 255, 237)
+        note over C,G: Phase 4 — Confirm
+        C->>S: message/send {decision: "approve"}
+        S->>G: Command(resume) → phase = done
+        G-->>S: PersonProfile (persisted under the authed user)
+        S-->>C: Task completed<br/>artifact = PersonProfile
+    end
+
+    note over S,G: A2A input-required ⇄ LangGraph interrupt();<br/>message/stream emits submitted → working… → input-required
+```
+
 ---
 
 ## Configuration reference (`.env`)
