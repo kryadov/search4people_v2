@@ -22,6 +22,7 @@ The agent collects a name, runs a preliminary site-restricted search on the top-
 - Local username/password auth with bcrypt-hashed credentials.
 - SQLite for users, profiles, source evidence, and LangGraph checkpoints in a single `data/app.db`.
 - `Dockerfile` + `docker-compose.yml` for a one-command deployment.
+- **A2A (Agent-to-Agent) server** (`uv run s4p-a2a`): exposes people-search as a remote A2A skill. Clarifying questions surface through the A2A `input-required` task state; the final profile is returned as a task artifact. Per-user Bearer-token auth.
 - Test suite with `pytest`, lint with `ruff`, type-check with `mypy`.
 
 ---
@@ -127,6 +128,43 @@ The container persists state in the host's `./data` directory.
 
 ---
 
+## A2A server (Agent-to-Agent)
+
+search4people can run as an [A2A](https://a2a-protocol.org) server so other agents
+can invoke people-search as a remote skill. It reuses the same graph and database
+as the Chainlit app and runs as a separate process.
+
+```bash
+# 1. Create a user and mint an API token (shown once — save it).
+uv run s4p-create-user demo <password>
+uv run s4p-create-token demo --label my-agent
+
+# 2. Run the A2A server (defaults to 0.0.0.0:8001).
+uv run s4p-a2a
+```
+
+- **Agent Card:** `GET http://localhost:8001/.well-known/agent-card.json` (public).
+- **Auth:** every JSON-RPC call needs `Authorization: Bearer <token>`. The token maps to
+  a user; built profiles are persisted under that user.
+- **One skill:** `people_search`. Send a name via `message/send`; if the query is
+  ambiguous the task pauses in `input-required` with candidate data, and the final
+  `PersonProfile` arrives as a completed-task artifact.
+
+### Demo
+
+With the server running and a token exported, run the end-to-end demo:
+
+```bash
+export A2A_DEMO_TOKEN=<token from s4p-create-token>
+uv run python examples/a2a_demo.py
+```
+
+It fetches the Agent Card, sends a name, answers the `input-required` narrowing and
+confirmation prompts, and prints the resulting profile artifact — mirroring how the
+LangGraph `interrupt()` pauses map onto A2A `input-required`.
+
+---
+
 ## Configuration reference (`.env`)
 
 | Variable | Purpose | Default |
@@ -147,6 +185,9 @@ The container persists state in the host's `./data` directory.
 | `CHAINLIT_AUTH_SECRET` | Required by Chainlit for password auth | — |
 | `LANGSMITH_TRACING` | Toggle LangSmith spans | `false` |
 | `LANGSMITH_API_KEY` / `LANGSMITH_PROJECT` | LangSmith creds | — |
+| `A2A_HOST` | Bind host for the A2A server | `0.0.0.0` |
+| `A2A_PORT` | Bind port for the A2A server | `8001` |
+| `A2A_PUBLIC_URL` | Base URL advertised in the Agent Card | host:port |
 
 ---
 
@@ -161,7 +202,8 @@ app/
 ├── auth.py              # @cl.password_auth_callback
 ├── db/                  # schema + aiosqlite accessors
 ├── models/              # PersonProfile + graph state
-├── graph/               # LangGraph build + nodes + prompts
+├── a2a/                 # A2A server: executor, agent card, auth, task store
+├── graph/               # LangGraph build + nodes + prompts + bridge (headless interrupt/resume)
 ├── tools/               # search / fetch / extract / robots / rate_limiter
 ├── ui/                  # profile card + cl.Step helpers
 └── scripts/create_user.py  # `uv run s4p-create-user`
@@ -188,6 +230,7 @@ The test suite stubs the network and the LLM, so it runs offline without API key
 - **Add a platform.** Add an entry to `PLATFORM_SITES` in `app/tools/search.py`, then put its name in `PLATFORMS_PRIMARY` or `PLATFORMS_SECONDARY`.
 - **Swap LLM provider.** Edit `LLM_PROVIDER` + `LLM_MODEL` in `.env`. The `init_chat_model` factory does the rest.
 - **Add a new node.** Implement it in `app/graph/nodes.py`, register it in `app/graph/build.py`, and (optionally) wire a `cl.Step` label in `app/ui/steps.py`.
+- **Call the agent over A2A.** Run `uv run s4p-a2a`, mint a token with `s4p-create-token`, and point any A2A client at the Agent Card. The interrupt↔`input-required` mapping lives in `app/graph/bridge.py`.
 
 ---
 
