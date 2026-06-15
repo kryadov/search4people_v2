@@ -9,6 +9,8 @@ from typing import Annotated, Literal
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from app.guardrails.config import GuardrailsSettings
+
 LLMProvider = Literal["anthropic", "openai", "ollama"]
 SearchProvider = Literal["tavily", "ddg"]
 
@@ -89,6 +91,9 @@ class Settings(BaseSettings):
     langsmith_tracing: bool = False
     langsmith_api_key: str | None = None
     langsmith_project: str = "search4people"
+
+    # Guardrails
+    guardrails: GuardrailsSettings = Field(default_factory=GuardrailsSettings)
 
     @field_validator(
         "search_providers",

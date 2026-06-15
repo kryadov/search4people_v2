@@ -48,3 +48,19 @@ CREATE TABLE IF NOT EXISTS a2a_tasks (
     task_json  TEXT NOT NULL,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS guard_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         TEXT    NOT NULL DEFAULT (datetime('now')),
+    user_id    INTEGER,
+    thread_id  TEXT,
+    point      TEXT    NOT NULL,   -- input | content | output
+    category   TEXT    NOT NULL,
+    action     TEXT    NOT NULL,
+    score      REAL,
+    label      TEXT,
+    snippet    TEXT,
+    decision   TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_guard_events_thread ON guard_events(thread_id);
