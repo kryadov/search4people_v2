@@ -4,9 +4,8 @@ from __future__ import annotations
 
 
 def test_main_registers_data_layer_and_resume() -> None:
+    import app.main  # noqa: F401, I001  (import triggers the chainlit decorators)
     from chainlit.config import config
-
-    import app.main  # noqa: F401  (import triggers the chainlit decorators)
 
     assert config.code.data_layer is not None
     assert config.code.on_chat_resume is not None
