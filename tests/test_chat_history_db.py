@@ -30,3 +30,18 @@ async def test_init_chat_history_db_creates_tables(monkeypatch, tmp_path: Path) 
     names = {r[0] for r in rows}
     assert {"users", "threads", "steps", "elements", "feedbacks"} <= names
     assert mode is not None and mode[0].lower() == "wal"
+
+
+def test_build_data_layer_uses_sqlite_conninfo(monkeypatch, tmp_path: Path) -> None:
+    db = tmp_path / "history.db"
+    monkeypatch.setenv("CHAT_HISTORY_DB_PATH", str(db))
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+
+    from app.db.chat_history import build_data_layer
+
+    dl = build_data_layer()
+    assert dl._conninfo.startswith("sqlite+aiosqlite:///")
+    assert dl._conninfo.endswith("history.db")
+    assert dl.storage_provider is None

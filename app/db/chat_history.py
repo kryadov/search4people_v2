@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import aiosqlite
+from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
 
 from app.config import get_settings
 
@@ -25,3 +26,14 @@ async def init_chat_history_db() -> None:
         await conn.execute("PRAGMA journal_mode=WAL;")
         await conn.executescript(sql)
         await conn.commit()
+
+
+def build_data_layer() -> SQLAlchemyDataLayer:
+    """Construct the Chainlit data layer over the chat-history SQLite file.
+
+    `as_posix()` keeps the URL valid on Windows (no backslashes). No storage
+    provider: this app persists only markdown messages, no binary elements.
+    """
+    settings = get_settings()
+    conninfo = f"sqlite+aiosqlite:///{settings.chat_history_db_path.as_posix()}"
+    return SQLAlchemyDataLayer(conninfo=conninfo, storage_provider=None)
