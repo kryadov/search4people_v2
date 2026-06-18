@@ -103,3 +103,22 @@ def test_parse_identity_text():
     assert parse_identity_text("Jane") == {"first_name": "Jane"}
     assert parse_identity_text("Jane Doe Smith") == {"first_name": "Jane", "last_name": "Doe Smith"}
     assert parse_identity_text("   ") == {}
+
+
+def test_fresh_search_input_resets_transient_state() -> None:
+    from app.graph.bridge import fresh_search_input
+
+    out = fresh_search_input({"first_name": "Jane", "last_name": "Doe"}, "ru")
+    assert out["query"] == {"first_name": "Jane", "last_name": "Doe"}
+    assert out["locale"] == "ru"
+    assert out["phase"] == "collect"
+    assert out["candidates"] == []
+    assert out["fetched_pages"] == []
+    assert out["visited_urls"] == []
+    assert out["iteration"] == 0
+    assert out["profile"] is None
+    assert out["user_decision"] is None
+    assert out["selected_candidate_index"] is None
+    assert out["guard_block"] is None
+    # messages must NOT be reset (add_messages reducer preserves history).
+    assert "messages" not in out

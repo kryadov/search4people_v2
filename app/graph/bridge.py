@@ -51,6 +51,30 @@ def parse_identity_text(text: str) -> dict[str, Any]:
     return {"first_name": tokens[0], "last_name": " ".join(tokens[1:])}
 
 
+def fresh_search_input(identity: dict[str, Any], locale: Locale) -> dict[str, Any]:
+    """A full state reset for a brand-new search on an existing thread.
+
+    Used when a finished (`phase == "done"`) thread receives a new identity:
+    the conversation continues in the same thread, but every plain (non-reduced)
+    state channel is overwritten so the new search does not inherit stale
+    candidates/profile. `messages` is omitted on purpose — its `add_messages`
+    reducer must keep the prior history visible.
+    """
+    return {
+        "query": identity,
+        "locale": locale,
+        "candidates": [],
+        "visited_urls": [],
+        "fetched_pages": [],
+        "iteration": 0,
+        "phase": "collect",
+        "profile": None,
+        "user_decision": None,
+        "selected_candidate_index": None,
+        "guard_block": None,
+    }
+
+
 def read_pending_input(snapshot: Any, locale: Locale) -> PendingInput | None:
     """Pull the active interrupt out of a LangGraph state snapshot."""
     tasks = getattr(snapshot, "tasks", None) or []
