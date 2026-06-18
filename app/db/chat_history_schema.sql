@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS steps (
     "language"      TEXT,
     "indent"        INTEGER,
     "defaultOpen"   INTEGER,
+    "autoCollapse"  INTEGER,
     FOREIGN KEY ("threadId") REFERENCES threads("id") ON DELETE CASCADE
 );
 
@@ -74,7 +75,8 @@ CREATE TABLE IF NOT EXISTS feedbacks (
     FOREIGN KEY ("threadId") REFERENCES threads("id") ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_threads_user ON threads("userIdentifier");
+-- get_all_user_threads (the sidebar listing) filters on threads."userId".
+CREATE INDEX IF NOT EXISTS idx_threads_user ON threads("userId");
 CREATE INDEX IF NOT EXISTS idx_steps_thread ON steps("threadId");
 CREATE INDEX IF NOT EXISTS idx_elements_thread ON elements("threadId");
 CREATE INDEX IF NOT EXISTS idx_feedbacks_for ON feedbacks("forId");

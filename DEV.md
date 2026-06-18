@@ -316,8 +316,11 @@ collide with the auth `users` table.
   `app/db/chat_history.py::init_chat_history_db()`. It must declare **every**
   column `SQLAlchemyDataLayer` can write (Chainlit builds INSERTs dynamically and
   `execute_sql` *swallows* errors, so a missing column silently drops the
-  step/element). `tests/test_chat_history_db.py` guards the easy-to-miss ones
-  (`steps.command`/`defaultOpen`, `elements.autoPlay`/`playerConfig`).
+  step/element). `tests/test_chat_history_db.py` guards this by INSERTing every
+  column `Step.to_dict()` emits (e.g. `steps.defaultOpen`/`autoCollapse`).
+  Note: the schema uses `CREATE TABLE IF NOT EXISTS`, so it does **not** migrate
+  an existing DB — after a schema change in development, delete
+  `data/chat_history.db` to pick it up.
 - **`thread_id`** is unified with Chainlit's `cl.context.session.thread_id`, so
   reopening a thread restores both the UI messages and the LangGraph checkpoint.
 
