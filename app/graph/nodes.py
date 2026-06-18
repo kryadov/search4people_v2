@@ -407,7 +407,13 @@ async def build_profile(state: PeopleSearchState) -> dict[str, Any]:
         log.warning("build_profile_failed", error=str(exc))
         profile = PersonProfile(full_name=full_name, confidence="low")
     if not isinstance(profile, PersonProfile):
-        profile = PersonProfile.model_validate(profile)
+        # The merge model can return None (no tool call) or an odd shape; coerce
+        # a dict, otherwise fall back rather than raising.
+        try:
+            profile = PersonProfile.model_validate(profile)
+        except Exception as exc:
+            log.warning("build_profile_invalid_result", error=str(exc))
+            profile = PersonProfile(full_name=full_name, confidence="low")
     # Provenance is deterministically known from the partials; the merge LLM
     # drops the evidence array non-deterministically, so backfill it here.
     profile = _merge_evidence(profile, partials)

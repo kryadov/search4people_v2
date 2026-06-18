@@ -73,5 +73,14 @@ async def extract_profile_from_page(
         return PersonProfile(full_name=full_name, confidence="low")
     if isinstance(result, PersonProfile):
         return result
-    # Some providers return a dict; coerce defensively.
-    return PersonProfile.model_validate(result)
+    # Structured-output models can return None (no tool call) or an unexpected
+    # shape — e.g. on a blocked page with an empty body. Coerce a dict; fall
+    # back to a low-confidence profile for anything else rather than raising.
+    if isinstance(result, dict):
+        try:
+            return PersonProfile.model_validate(result)
+        except Exception as exc:
+            log.warning("extract_invalid_result", url=url, error=str(exc))
+    else:
+        log.warning("extract_empty_result", url=url, result_type=type(result).__name__)
+    return PersonProfile(full_name=full_name, confidence="low")

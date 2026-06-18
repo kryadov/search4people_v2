@@ -117,3 +117,26 @@ async def test_does_not_backfill_search_snippet_for_a_fetched_page(monkeypatch):
     ev = [e for e in profile.evidence if "jane-doe" in str(e.url)]
     assert len(ev) == 1
     assert ev[0].snippet is None
+
+
+@pytest.mark.asyncio
+async def test_build_profile_survives_merge_model_returning_none(monkeypatch):
+    # The merge model can return None (no tool call); build_profile must not raise.
+    fake_model = MagicMock()
+    fake_model.ainvoke = AsyncMock(return_value=None)
+    monkeypatch.setattr(nodes, "build_structured_model", lambda *a, **k: fake_model)
+
+    partial = PersonProfile(full_name="Konstantin Riadov", confidence="low")
+    state = {
+        "query": {"first_name": "Konstantin", "last_name": "Riadov"},
+        "fetched_pages": [_blocked_page(partial)],
+    }
+
+    patch = await nodes.build_profile(state)
+    profile = PersonProfile.model_validate(patch["profile"])
+
+    assert profile.full_name == "Konstantin Riadov"
+    # The blocked page's snippet is still carried into evidence deterministically.
+    ev = [e for e in profile.evidence if "konstantin-riadov" in str(e.url)]
+    assert len(ev) == 1
+    assert ev[0].snippet == _SNIPPET
