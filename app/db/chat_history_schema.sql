@@ -1,10 +1,6 @@
--- Chainlit data-layer schema (SQLite variant).
---
--- Column names + types must match the SQL emitted by
--- chainlit.data.sql_alchemy.SQLAlchemyDataLayer. UUIDs become TEXT, JSON/array
--- columns become TEXT, booleans become INTEGER. This file lives in its own
--- SQLite database (settings.chat_history_db_path) because the `users` table
--- below would otherwise collide with the auth `users` table in app.db.
+-- Chainlit data-layer schema (SQLite). Managed by us because
+-- SQLAlchemyDataLayer does not create its own tables. Kept in a separate DB
+-- file from app.db: Chainlit's `users` table collides with our auth `users`.
 
 CREATE TABLE IF NOT EXISTS users (
     "id"         TEXT PRIMARY KEY,
@@ -38,29 +34,35 @@ CREATE TABLE IF NOT EXISTS steps (
     "input"         TEXT,
     "output"        TEXT,
     "createdAt"     TEXT,
+    "command"       TEXT,
     "start"         TEXT,
     "end"           TEXT,
     "generation"    TEXT,
     "showInput"     TEXT,
     "language"      TEXT,
-    "indent"        INTEGER
+    "indent"        INTEGER,
+    "defaultOpen"   INTEGER,
+    FOREIGN KEY ("threadId") REFERENCES threads("id") ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS elements (
-    "id"          TEXT PRIMARY KEY,
-    "threadId"    TEXT,
-    "type"        TEXT,
-    "url"         TEXT,
-    "chainlitKey" TEXT,
-    "name"        TEXT NOT NULL,
-    "display"     TEXT,
-    "objectKey"   TEXT,
-    "size"        TEXT,
-    "page"        INTEGER,
-    "language"    TEXT,
-    "forId"       TEXT,
-    "mime"        TEXT,
-    "props"       TEXT
+    "id"           TEXT PRIMARY KEY,
+    "threadId"     TEXT,
+    "type"         TEXT,
+    "url"          TEXT,
+    "chainlitKey"  TEXT,
+    "name"         TEXT NOT NULL,
+    "display"      TEXT,
+    "objectKey"    TEXT,
+    "size"         TEXT,
+    "page"         INTEGER,
+    "language"     TEXT,
+    "forId"        TEXT,
+    "mime"         TEXT,
+    "props"        TEXT,
+    "autoPlay"     INTEGER,
+    "playerConfig" TEXT,
+    FOREIGN KEY ("threadId") REFERENCES threads("id") ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS feedbacks (
@@ -68,10 +70,11 @@ CREATE TABLE IF NOT EXISTS feedbacks (
     "forId"    TEXT NOT NULL,
     "threadId" TEXT NOT NULL,
     "value"    INTEGER NOT NULL,
-    "comment"  TEXT
+    "comment"  TEXT,
+    FOREIGN KEY ("threadId") REFERENCES threads("id") ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_threads_user ON threads("userId");
+CREATE INDEX IF NOT EXISTS idx_threads_user ON threads("userIdentifier");
 CREATE INDEX IF NOT EXISTS idx_steps_thread ON steps("threadId");
 CREATE INDEX IF NOT EXISTS idx_elements_thread ON elements("threadId");
-CREATE INDEX IF NOT EXISTS idx_feedbacks_forid ON feedbacks("forId");
+CREATE INDEX IF NOT EXISTS idx_feedbacks_for ON feedbacks("forId");

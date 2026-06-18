@@ -301,3 +301,35 @@ helper** (like `plan_narrowing`) so it can be called without `interrupt`.
 - [ ] If LLM nodes were touched — run `uv run pytest -m "eval and not live"`.
 - [ ] `uv run ruff check .` and `uv run mypy app` — no new errors.
 ```
+
+---
+
+## Chat history (persistence)
+
+The Chainlit frontend persists per-user conversations via Chainlit's
+`SQLAlchemyDataLayer`, stored in a **separate** SQLite file
+`data/chat_history.db` (`CHAT_HISTORY_DB_PATH`) — kept apart from `data/app.db`
+because Chainlit's data-layer schema defines its own `users` table that would
+collide with the auth `users` table.
+
+- **Schema:** `app/db/chat_history_schema.sql`, applied idempotently with WAL by
+  `app/db/chat_history.py::init_chat_history_db()`. It must declare **every**
+  column `SQLAlchemyDataLayer` can write (Chainlit builds INSERTs dynamically and
+  `execute_sql` *swallows* errors, so a missing column silently drops the
+  step/element). `tests/test_chat_history_db.py` guards the easy-to-miss ones
+  (`steps.command`/`defaultOpen`, `elements.autoPlay`/`playerConfig`).
+- **`thread_id`** is unified with Chainlit's `cl.context.session.thread_id`, so
+  reopening a thread restores both the UI messages and the LangGraph checkpoint.
+
+### "New Chat" and parallel use
+
+`confirm_new_chat = false` in `.chainlit/config.toml`. With the data layer on,
+**"New Chat" is non-destructive** — it opens a new persisted thread and the
+previous conversation stays in the history sidebar — so the old confirmation
+dialog ("history will be cleared") was misleading and is disabled.
+
+Chainlit runs **one message handler per session (browser tab)**; there is no
+true multi-run concurrency within a single tab. For parallel searches, open
+**multiple tabs** — each gets its own thread and checkpoint and runs
+independently. Switching threads in one tab via the sidebar preserves each
+thread's state in its checkpoint.

@@ -113,8 +113,11 @@ name = "Assistant"
 # Default state of chat settings sidebar when location is "sidebar"
 # default_chat_settings_open = false
 
-# Whether to prompt user confirmation on clicking 'New Chat'
-confirm_new_chat = true
+# Whether to prompt user confirmation on clicking 'New Chat'.
+# With the data layer enabled, 'New Chat' is non-destructive — it opens a new
+# persisted thread and the previous conversation stays in the history sidebar —
+# so the confirmation dialog ("history will be cleared") is misleading. Off.
+confirm_new_chat = false
 
 # Description of the assistant. This is used for HTML tags.
 # description = ""
