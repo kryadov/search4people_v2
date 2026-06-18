@@ -33,6 +33,9 @@ dependencies = [
     # Auth + storage
     "bcrypt>=4.2.0",
     "aiosqlite>=0.20.0",
+    # Chainlit data layer (persistent chat history)
+    "sqlalchemy>=2.0,<3.0",
+    "greenlet>=3.0",
     # Logging + optional tracing
     "structlog>=24.4.0",
     "langsmith>=0.4.0",

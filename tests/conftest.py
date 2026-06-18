@@ -26,6 +26,7 @@ def _isolate_env(
         return
 
     monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("CHAT_HISTORY_DB_PATH", str(tmp_path / "chat_history.db"))
     monkeypatch.setenv("CHAINLIT_AUTH_SECRET", "test-secret-must-be-long-enough")
     monkeypatch.setenv("LLM_PROVIDER", "anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
