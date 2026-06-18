@@ -58,7 +58,9 @@ def fresh_search_input(identity: dict[str, Any], locale: Locale) -> dict[str, An
     the conversation continues in the same thread, but every plain (non-reduced)
     state channel is overwritten so the new search does not inherit stale
     candidates/profile. `messages` is omitted on purpose — its `add_messages`
-    reducer must keep the prior history visible.
+    reducer must keep the prior history visible. `max_iterations` is also
+    intentionally not reset here; the `collect_identity` node re-establishes it
+    from `Settings`, so carrying the config default is correct.
     """
     return {
         "query": identity,

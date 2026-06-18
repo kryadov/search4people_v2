@@ -16,6 +16,7 @@ from typing import Any, cast
 import chainlit as cl
 import chainlit.data as cl_data
 import structlog
+from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
 from chainlit.types import ThreadDict
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
@@ -46,7 +47,7 @@ log = structlog.get_logger()
 
 
 @cl.data_layer
-def _build_chat_history_layer():
+def _build_chat_history_layer() -> SQLAlchemyDataLayer:
     """Register Chainlit's persistent chat-history store (per-user threads)."""
     return build_data_layer()
 
