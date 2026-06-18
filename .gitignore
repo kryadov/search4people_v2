@@ -38,7 +38,10 @@ htmlcov/
 .ruff_cache/
 
 # Chainlit
-.chainlit/translations/
+.chainlit/translations/*
+# Track customized translations (themed placeholder + Russian locale)
+!.chainlit/translations/en-US.json
+!.chainlit/translations/ru.json
 .files/
 
 # Playwright
