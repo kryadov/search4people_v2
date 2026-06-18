@@ -334,28 +334,36 @@ async def fetch_pages(state: PeopleSearchState) -> dict[str, Any]:
         url = c.get("url")
         if not url:
             return None
+        title = c.get("title")
+        snippet = c.get("snippet")
         async with sem:
             result = await fetcher.fetch(url)
-            if not result.markdown:
-                return None
-            markdown = result.markdown
+            markdown = result.markdown or ""
             # Untrusted page content is a prompt-injection vector before it
             # reaches the extraction LLM; sanitize anything the guard flags.
-            scan = await get_guardrails().scan_content(markdown)
-            if scan.transformed_text is not None:
-                markdown = scan.transformed_text
+            if markdown:
+                scan = await get_guardrails().scan_content(markdown)
+                if scan.transformed_text is not None:
+                    markdown = scan.transformed_text
+            # Bail only when there is nothing at all to extract from: a blocked
+            # page (empty body) still yields facts from the search snippet/title.
+            if not markdown and not (snippet or title):
+                return None
             extracted = await extract_profile_from_page(
                 full_name=full_name,
                 distinguishers=distinguishers,
                 url=url,
                 markdown=markdown,
                 platform=c.get("platform"),
+                title=title,
+                snippet=snippet,
             )
             return {
                 "url": url,
                 "platform": c.get("platform"),
-                "snippet": c.get("snippet"),
+                "snippet": snippet,
                 "markdown_len": len(markdown),
+                "fetch_blocked": not markdown,
                 "partial": extracted.model_dump(mode="json"),
             }
 
