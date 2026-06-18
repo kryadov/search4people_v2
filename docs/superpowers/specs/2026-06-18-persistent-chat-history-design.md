@@ -30,10 +30,19 @@ sidebar listing their past conversations, click-to-resume with all messages
 restored and the conversation continuable, plus rename/delete. History is scoped
 per user automatically by Chainlit's identifier.
 
+## In scope (added after initial brainstorm)
+
+- **Search over history** — satisfied by Chainlit's built-in sidebar search (see
+  "Search and auto-tagging"). No custom search engine.
+- **Auto-tagging** of threads with the searched person's platforms, the result
+  confidence, and the locale, plus the ability to find threads by those tags.
+
 ## Non-goals (YAGNI)
 
 - Postgres / cloud (LiteralAI) data layers — SQLite only.
-- Full-text search over history, tagging beyond Chainlit defaults.
+- A custom full-text engine: **no SQLite FTS5 index, no search over structured
+  profile fields.** Search relies on Chainlit's built-in substring search.
+- **Manual / user-entered tags** — tagging is automatic only.
 - Thread sharing / export.
 - Changing the A2A frontend (it does not use Chainlit and is unaffected).
 - Any change to graph topology, nodes, prompts, or guardrails.
@@ -161,12 +170,60 @@ Add to main `dependencies`:
    (fresh `PeopleSearchState` input vs. explicit state reset) is settled in the
    plan and pinned by a test.
 
+5. **Auto-tag on completion.** In `_persist_if_done`, after the profile is saved,
+   compute the tag set and write it to the thread (see "Search and auto-tagging").
+
 ### i18n
 Thread titles auto-derive from the first user message (the person's name) — no
 new strings required. Optionally override a thread's title with the resolved
 `full_name` once a profile completes (nice-to-have, can be deferred). Any new
 user-facing string added during implementation goes through `t()` with both
 `en` and `ru` entries.
+
+## Search and auto-tagging
+
+### Search — built-in, no custom engine
+
+`SQLAlchemyDataLayer.list_threads` already honors `ThreadFilter.search`: it
+substring-matches the keyword (case-insensitive) against every step's `output`
+across the user's threads, and the Chainlit sidebar exposes a search box wired to
+it. Once the data layer is on, "search my past conversations by keyword" works
+with **zero extra code**. Our only task is to confirm it functions against the
+SQLite schema and that the searched person's names/platforms (already present in
+the candidate list and profile-card messages) are therefore findable.
+
+No FTS5, no profile-table search (explicit non-goals). The built-in scan is
+O(threads × steps) in Python — fine for per-user history sizes; revisit only if
+history grows large enough to matter.
+
+### Auto-tagging
+
+When a search completes (the `_persist_if_done` path, where we already hold the
+final state + validated `PersonProfile`), compute a normalized tag set and write
+it to the thread.
+
+- **Tag computation** (namespaced tokens, so search is precise and collision-free):
+  - `platform:<name>` for each distinct platform in `profile.evidence`
+    (e.g. `platform:linkedin`, `platform:github`).
+  - `confidence:<low|medium|high>` from the profile confidence.
+  - `locale:<en|ru>` from the conversation locale.
+- **Canonical storage:** persist to the thread's `tags` column via the data
+  layer — `await get_data_layer().update_thread(thread_id, tags=[...])`. This is
+  the source of truth and keeps a future facet-filter possible with no migration.
+- **Discovery / "filter by tag":** `ThreadFilter` has no `tags` field and the
+  sidebar has no tag-filter UI, so to make tags *findable* with the built-in
+  search the user kept, also append a compact, searchable tag line to the thread
+  on completion (a short `cl.Message`/step like
+  `🏷 platform:linkedin · platform:github · confidence:high · locale:ru`). Typing
+  `platform:linkedin` (or just `linkedin`) in the sidebar search box then surfaces
+  the matching threads. Tags thus live in two places: canonically in
+  `thread.tags`, and echoed once into searchable content for discovery.
+  *(Decision point for spec review: this echo line is the pragmatic way to get
+  tag filtering without forking the frontend; the alternative — a custom
+  `/history <tag>` listing command — is heavier and duplicates the sidebar.)*
+
+New i18n: the tag-line label (and any "tagged" copy) goes through `t()` in
+`en`/`ru`. The tag tokens themselves stay untranslated (stable identifiers).
 
 ## Data flow
 
@@ -179,6 +236,7 @@ Login (password_auth → cl.User identifier=username)
   ├─ on_message: graph runs on that thread_id
   │     LangGraph checkpoint → data/app.db
   │     Chainlit messages/steps → data/chat_history.db
+  │     on completion: profile → app.db; auto-tags → thread.tags + searchable line
   │
   └─ Sidebar lists this user's threads (chat_history.db, scoped by identifier)
         │
@@ -203,6 +261,24 @@ Login (password_auth → cl.User identifier=username)
   crashing the server (history is an enhancement, not a hard dependency of a
   single search).
 
+## Deployment (Docker)
+
+The new `chat_history.db` lives under `data/`, which `docker-compose.yml` already
+mounts (`./data:/app/data`), so **it persists across container restarts with no
+compose change** — including the WAL sidecars (`chat_history.db-wal`, `-shm`).
+Concrete to-dos:
+
+- **Ship the schema file:** `app/db/chat_history_schema.sql` is copied by the
+  existing `COPY app ./app` and read via `Path(__file__).with_name(...)` from the
+  source tree (same as today's `schema.sql`). Also add `*.sql` to the hatchling
+  wheel includes so the installed-package path keeps it too.
+- **Make data persistence explicit:** add `VOLUME ["/app/data"]` to the
+  `Dockerfile` so the directory persists even when run without compose, and so the
+  intent is documented at the image level. (`init_db()` / `init_chat_history_db()`
+  already `mkdir(parents=True, exist_ok=True)`, so the dir is created on first run.)
+- No new ports, env, or system packages — `sqlalchemy`/`greenlet` are pure-Python
+  wheels pulled in by `uv sync`.
+
 ## Testing
 
 - **Unit — resume state restoration:** given a fake checkpoint snapshot in each
@@ -214,6 +290,9 @@ Login (password_auth → cl.User identifier=username)
 - **Smoke — lifecycle wiring:** `@cl.data_layer` returns a `SQLAlchemyDataLayer`
   pointed at the configured path; `init_chat_history_db()` is idempotent and
   creates the five tables.
+- **Unit — auto-tag computation:** a sample final state + `PersonProfile`
+  (mixed platforms / confidence / locale) yields the expected normalized,
+  deduped, namespaced tag list, and the searchable tag-line renders those tokens.
 - The deterministic graph suite (`tests/test_graph_flow.py`, evals) is untouched.
 - `uv run ruff check .` and `uv run mypy app` stay clean.
 
@@ -224,3 +303,8 @@ Login (password_auth → cl.User identifier=username)
 - Whether to override thread titles with the resolved name on completion.
 - The precise SQLite DDL column types matching Chainlit's `SQLAlchemyDataLayer`
   queries (verify against `sql_alchemy.py`'s SQL before finalizing).
+- Confirm the searchable tag-line approach vs. a custom `/history <tag>` command
+  for tag discovery (spec leans to the tag-line; final call at review).
+- How to obtain the data-layer handle inside `_persist_if_done`
+  (`chainlit.data.get_data_layer()`), and timing so the thread row already exists
+  when `update_thread(tags=…)` runs.
