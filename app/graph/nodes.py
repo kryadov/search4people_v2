@@ -386,7 +386,8 @@ async def build_profile(state: PeopleSearchState) -> dict[str, Any]:
     """Merge per-page partials into a single PersonProfile via the LLM."""
     full_name = _full_name(state["query"])
     distinguishers = _distinguishers(state["query"])
-    partials = [p["partial"] for p in state.get("fetched_pages") or []]
+    fetched = state.get("fetched_pages") or []
+    partials = [p["partial"] for p in fetched]
     if not partials:
         empty = PersonProfile(full_name=full_name, confidence="low").model_dump(mode="json")
         empty, _ = await get_guardrails().redact_profile(empty)
@@ -410,6 +411,10 @@ async def build_profile(state: PeopleSearchState) -> dict[str, Any]:
     # Provenance is deterministically known from the partials; the merge LLM
     # drops the evidence array non-deterministically, so backfill it here.
     profile = _merge_evidence(profile, partials)
+    # For a blocked page (empty body) the search snippet is the known, sole
+    # source — carry it into evidence deterministically rather than relying on
+    # the merge LLM to keep it.
+    profile = _backfill_blocked_snippets(profile, fetched)
     profile_dict = profile.model_dump(mode="json")
     profile_dict, _ = await get_guardrails().redact_profile(profile_dict)
     return {"profile": profile_dict, "phase": "confirm"}
@@ -435,6 +440,47 @@ def _merge_evidence(
             except Exception:
                 continue
             seen.add(str(url))
+    return profile
+
+
+def _backfill_blocked_snippets(
+    profile: PersonProfile, fetched_pages: list[dict[str, Any]]
+) -> PersonProfile:
+    """Deterministically attach a blocked page's search snippet to its evidence.
+
+    When a page body could not be fetched (`fetch_blocked`), the search snippet
+    is the known, sole source for that URL. Ensure the final profile's evidence
+    entry for the URL carries that snippet text: fill it in if the entry exists
+    without a snippet, or create the entry if the merge LLM omitted it entirely.
+    A page whose body loaded is left untouched — its facts come from the body,
+    not the search result.
+    """
+    by_url: dict[str, dict[str, Any]] = {}
+    for page in fetched_pages:
+        if not page.get("fetch_blocked"):
+            continue
+        url, snippet = page.get("url"), page.get("snippet")
+        if url and snippet:
+            by_url.setdefault(
+                str(url).rstrip("/"),
+                {"url": url, "platform": page.get("platform"), "snippet": snippet},
+            )
+    if not by_url:
+        return profile
+
+    existing = {str(ev.url).rstrip("/"): ev for ev in profile.evidence}
+    for key, info in by_url.items():
+        ev = existing.get(key)
+        if ev is not None:
+            if not ev.snippet:
+                ev.snippet = info["snippet"]
+            continue
+        try:
+            profile.evidence.append(
+                Evidence(url=info["url"], platform=info["platform"], snippet=info["snippet"])
+            )
+        except Exception:
+            continue
     return profile
 
 
