@@ -267,6 +267,12 @@ tests/                   # pytest suite (tools mocked via respx, graph with a st
 data/                    # runtime SQLite lives here (git-ignored)
 ```
 
+### Storage files
+
+- `data/app.db` — user auth, persisted profiles, LangGraph checkpoints.
+- `data/chat_history.db` — persistent per-user Chainlit chat history (separate
+  from `app.db`; see DEV.md → "Chat history").
+
 ---
 
 ## Development

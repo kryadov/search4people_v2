@@ -301,3 +301,30 @@ helper** (like `plan_narrowing`) so it can be called without `interrupt`.
 - [ ] If LLM nodes were touched — run `uv run pytest -m "eval and not live"`.
 - [ ] `uv run ruff check .` and `uv run mypy app` — no new errors.
 ```
+
+---
+
+## Chat history (persistence)
+
+The Chainlit frontend persists per-user conversations via Chainlit's
+`SQLAlchemyDataLayer`, stored in a **separate** SQLite file
+`data/chat_history.db` (set by `CHAT_HISTORY_DB_PATH`). It is separate from
+`data/app.db` because Chainlit's data-layer schema defines its own `users`
+table, which would collide with the auth `users` table.
+
+- Schema: `app/db/chat_history_schema.sql`, applied idempotently by
+  `app/db/chat_history.py::init_chat_history_db()` at startup (WAL mode).
+- The graph `thread_id` is unified with Chainlit's persisted thread id
+  (`cl.context.session.thread_id`), so reopening a thread restores both the UI
+  messages and the LangGraph checkpoint. `on_chat_resume` recovers the
+  `awaiting` flag from the checkpoint.
+- Reopening a finished search and typing a new name continues in the same
+  thread via `fresh_search_input` (transient state reset, history preserved).
+- **Search:** Chainlit's built-in sidebar search (substring over message text).
+- **Auto-tags:** on completion, `platform:*`, `confidence:*`, `locale:*` tags
+  are echoed as a searchable line and stored in thread metadata
+  (`auto_tags`). They are NOT written via the data layer's `tags=` parameter —
+  SQLite cannot bind a Python list, so that path is unused.
+- **Docker:** `data/chat_history.db` (and its `-wal`/`-shm` sidecars) persist
+  through the existing `./data:/app/data` mount in `docker-compose.yml`; the
+  `Dockerfile` also declares `VOLUME ["/app/data"]`.
