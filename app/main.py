@@ -11,15 +11,17 @@ from __future__ import annotations
 
 import contextlib
 import re
-import uuid
 from typing import Any, cast
 
 import chainlit as cl
+import chainlit.data as cl_data
 import structlog
+from chainlit.types import ThreadDict
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from app.auth import password_auth  # noqa: F401 - registers @cl.password_auth_callback
 from app.config import get_settings
+from app.db.chat_history import build_data_layer, init_chat_history_db
 from app.db.connection import init_db
 from app.db.profiles import save_profile
 from app.db.users import set_user_locale
@@ -27,6 +29,7 @@ from app.graph.bridge import (
     PendingInput,
     ResumeAnswer,
     build_resume_command,
+    fresh_search_input,
     parse_identity_text,
     read_pending_input,
 )
@@ -35,9 +38,17 @@ from app.i18n import DEFAULT_LOCALE, Locale, detect_locale_command, t
 from app.models.profile import PersonProfile
 from app.models.state import IdentityQuery, PeopleSearchState
 from app.ui.profile_card import render_profile_message
+from app.ui.session_state import derive_session_state
 from app.ui.steps import emit_node_step
+from app.ui.tags import compute_auto_tags, render_tag_line
 
 log = structlog.get_logger()
+
+
+@cl.data_layer
+def _build_chat_history_layer():
+    """Register Chainlit's persistent chat-history store (per-user threads)."""
+    return build_data_layer()
 
 
 # ----- Process-wide checkpointer -----
@@ -55,6 +66,7 @@ async def _ensure_graph():
         return _graph
     settings = get_settings()
     await init_db()
+    await init_chat_history_db()
     _saver_ctx = AsyncSqliteSaver.from_conn_string(str(settings.db_path))
     _saver = await _saver_ctx.__aenter__()
     _graph = build_graph().compile(checkpointer=_saver)
@@ -97,11 +109,9 @@ async def _set_locale(locale: Locale) -> None:
 
 
 def _thread_config() -> dict[str, Any]:
-    thread_id = cl.user_session.get("thread_id")
-    if not thread_id:
-        thread_id = str(uuid.uuid4())
-        cl.user_session.set("thread_id", thread_id)
-    return {"configurable": {"thread_id": thread_id}}
+    # The graph thread id IS Chainlit's persisted thread id, so resuming a
+    # thread restores both the UI messages and the LangGraph checkpoint.
+    return {"configurable": {"thread_id": cl.context.session.thread_id}}
 
 
 def _format_candidate_list(candidates: list[dict[str, Any]], limit: int = 8) -> str:
@@ -215,7 +225,7 @@ async def _persist_if_done(state: dict[str, Any]) -> None:
         profile = PersonProfile.model_validate(profile_raw)
     except Exception:
         return
-    thread_id = cl.user_session.get("thread_id") or ""
+    thread_id = cl.context.session.thread_id
     sources = [
         {"url": str(ev.url), "platform": ev.platform, "snippet": ev.snippet}
         for ev in profile.evidence
@@ -231,6 +241,20 @@ async def _persist_if_done(state: dict[str, Any]) -> None:
         await cl.Message(content=t("profile_saved", _user_locale())).send()
     except Exception as exc:
         log.warning("persist_profile_failed", error=str(exc))
+        return
+
+    # Auto-tags: discoverable via the built-in search (echo line) and stored in
+    # thread metadata for future faceting. NOTE: we use metadata, not the
+    # data layer's `tags=` param, because SQLite cannot bind a Python list.
+    locale = _user_locale()
+    tags = compute_auto_tags(profile.model_dump(mode="json"), locale)
+    data_layer = cl_data.get_data_layer()
+    if data_layer is not None:
+        try:
+            await data_layer.update_thread(str(thread_id), metadata={"auto_tags": tags})
+        except Exception as exc:
+            log.warning("thread_tags_failed", error=str(exc))
+    await cl.Message(content=render_tag_line(tags, locale)).send()
 
 
 # ----- Chainlit lifecycle -----
@@ -244,6 +268,26 @@ async def on_chat_start() -> None:
     await cl.Message(content=t("language_toggle_hint", locale)).send()
     await cl.Message(content=t("ask_who", locale)).send()
     cl.user_session.set("awaiting", "identity")
+
+
+@cl.on_chat_resume
+async def on_chat_resume(thread: ThreadDict) -> None:
+    """Restore server-side session flags when a past thread is reopened.
+
+    Chainlit replays the stored messages itself; we only need to recover
+    `awaiting`/locale. The graph checkpoint is the source of truth for what the
+    conversation is waiting for, so we derive it from the snapshot.
+    """
+    graph = await _ensure_graph()
+    config = _thread_config()
+    locale = _user_locale()
+    snapshot = await graph.aget_state(config)
+    pending = read_pending_input(snapshot, locale)
+    sess = derive_session_state(pending)
+    cl.user_session.set("awaiting", sess.awaiting)
+    if sess.awaiting == "narrowing":
+        cl.user_session.set("narrowing_attribute", sess.narrowing_attribute)
+        cl.user_session.set("narrowing_candidate_count", sess.narrowing_candidate_count)
 
 
 @cl.on_message
@@ -301,10 +345,10 @@ async def on_message(message: cl.Message) -> None:
         )
         graph_input = build_resume_command(pending, answer)
     else:
-        # No active expectation — treat as a fresh start.
-        cl.user_session.set("thread_id", str(uuid.uuid4()))
+        # No active expectation (e.g. a finished thread) — start a new search in
+        # the SAME thread, resetting transient state but keeping the history.
         parsed = parse_identity_text(text)
-        graph_input = PeopleSearchState(query=cast(IdentityQuery, parsed), locale=_user_locale())
+        graph_input = cast(PeopleSearchState, fresh_search_input(parsed, _user_locale()))
 
     cl.user_session.set("awaiting", None)
     state = await _stream_graph(graph_input)
