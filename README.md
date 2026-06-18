@@ -20,7 +20,8 @@ The agent collects a name, runs a preliminary site-restricted search on the top-
 - Streaming UI: each graph node surfaces as a `cl.Step` so the user sees what the agent is doing in real time.
 - Bilingual (English / Russian) chat UI with a `/ru` `/en` runtime toggle persisted to the user record.
 - Local username/password auth with bcrypt-hashed credentials.
-- SQLite for users, profiles, source evidence, and LangGraph checkpoints in a single `data/app.db`.
+- **Persistent per-user chat history**: Chainlit's data layer gives each user a sidebar of past conversations with click-to-resume. The persisted thread id is reused as the LangGraph `thread_id`, so resuming restores both the messages and the graph's checkpoint state; finished searches are auto-tagged (`platform:*`, `confidence:*`, `locale:*`) for sidebar search.
+- SQLite for users, profiles, source evidence, and LangGraph checkpoints in `data/app.db`; chat history in a separate `data/chat_history.db`.
 - `Dockerfile` + `docker-compose.yml` for a one-command deployment.
 - **A2A (Agent-to-Agent) server** (`uv run s4p-a2a`): exposes people-search as a remote A2A skill. Clarifying questions surface through the A2A `input-required` task state; the final profile is returned as a task artifact. Per-user Bearer-token auth.
 - **Guardrails** (GLiNER2 + `hivetrace/gliner-guard-omni`): blocks abuse requests (stalking/doxing/minor targeting), sanitizes prompt-injection in fetched pages, redacts PII in the final profile, and audits every decision to SQLite (`guard_events`). Enabled by default; configure via `GUARDRAILS_*` env vars or set `GUARDRAILS_BACKEND=noop` to disable.
@@ -224,7 +225,8 @@ sequenceDiagram
 | `PER_HOST_RPS` | Per-host request rate for the fetcher | `1.0` |
 | `USER_AGENT` | UA string for HTTP + robots checks | `search4people/0.1 …` |
 | `JS_HEAVY_DOMAINS` | Hosts that always go through Playwright | `linkedin.com,instagram.com,facebook.com` |
-| `DB_PATH` | SQLite file path | `data/app.db` |
+| `DB_PATH` | SQLite file path (users, profiles, checkpoints) | `data/app.db` |
+| `CHAT_HISTORY_DB_PATH` | SQLite file for Chainlit chat history | `data/chat_history.db` |
 | `CHAINLIT_AUTH_SECRET` | Required by Chainlit for password auth | — |
 | `LANGSMITH_TRACING` | Toggle LangSmith spans | `false` |
 | `LANGSMITH_API_KEY` / `LANGSMITH_PROJECT` | LangSmith creds | — |

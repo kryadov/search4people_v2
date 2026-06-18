@@ -75,5 +75,9 @@ COPY app ./app
 COPY chainlit.md ./chainlit.md
 COPY .chainlit ./.chainlit
 
+# SQLite state (app.db + chat_history.db and their WAL sidecars) lives here so it
+# survives container restarts. docker-compose mounts ./data over this path.
+VOLUME ["/app/data"]
+
 EXPOSE 8000
 CMD ["chainlit", "run", "app/main.py", "--host", "0.0.0.0", "--port", "8000", "--headless"]

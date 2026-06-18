@@ -110,6 +110,10 @@ _TRANSLATIONS: dict[str, dict[Locale, str]] = {
         "en": "Type `/ru` for Russian or `/en` for English at any time.",
         "ru": "Введите `/ru` для русского или `/en` для английского в любой момент.",
     },
+    "history_tagged": {
+        "en": "Tags:",
+        "ru": "Метки:",
+    },
 }
 
 
