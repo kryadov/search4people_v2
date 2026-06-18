@@ -16,10 +16,14 @@ from typing import Any, cast
 
 import chainlit as cl
 import structlog
+from chainlit.data import get_data_layer
+from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
+from chainlit.types import ThreadDict
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from app.auth import password_auth  # noqa: F401 - registers @cl.password_auth_callback
 from app.config import get_settings
+from app.db.chat_history import build_data_layer, init_chat_history_db
 from app.db.connection import init_db
 from app.db.profiles import save_profile
 from app.db.users import set_user_locale
@@ -31,9 +35,15 @@ from app.graph.bridge import (
     read_pending_input,
 )
 from app.graph.build import build_graph
+from app.history import (
+    build_fresh_input,
+    compute_thread_tags,
+    render_tag_line,
+    resume_awaiting,
+)
 from app.i18n import DEFAULT_LOCALE, Locale, detect_locale_command, t
 from app.models.profile import PersonProfile
-from app.models.state import IdentityQuery, PeopleSearchState
+from app.models.state import IdentityQuery
 from app.ui.profile_card import render_profile_message
 from app.ui.steps import emit_node_step
 
@@ -60,6 +70,19 @@ async def _ensure_graph():
     _graph = build_graph().compile(checkpointer=_saver)
     log.info("graph_compiled", db=str(settings.db_path))
     return _graph
+
+
+@cl.data_layer
+def _chat_history_data_layer() -> SQLAlchemyDataLayer:
+    """Register Chainlit's SQLAlchemy data layer (per-user threads + resume)."""
+    return build_data_layer()
+
+
+@cl.on_app_startup
+async def _startup() -> None:
+    # Ensure both SQLite schemas exist before the data layer is first queried.
+    await init_chat_history_db()
+    await _ensure_graph()
 
 
 @cl.on_app_shutdown
@@ -97,9 +120,15 @@ async def _set_locale(locale: Locale) -> None:
 
 
 def _thread_config() -> dict[str, Any]:
-    thread_id = cl.user_session.get("thread_id")
+    """Use Chainlit's persisted thread id as the graph thread id.
+
+    Unifying the two means resuming a thread restores both the UI messages
+    (Chainlit data layer) and the graph's checkpoint state (LangGraph) at once.
+    Falls back to a per-session uuid only if the context has no thread id.
+    """
+    thread_id = getattr(cl.context.session, "thread_id", None)
     if not thread_id:
-        thread_id = str(uuid.uuid4())
+        thread_id = cl.user_session.get("thread_id") or str(uuid.uuid4())
         cl.user_session.set("thread_id", thread_id)
     return {"configurable": {"thread_id": thread_id}}
 
@@ -232,6 +261,30 @@ async def _persist_if_done(state: dict[str, Any]) -> None:
     except Exception as exc:
         log.warning("persist_profile_failed", error=str(exc))
 
+    await _tag_thread(profile, str(thread_id))
+
+
+async def _tag_thread(profile: PersonProfile, thread_id: str) -> None:
+    """Auto-tag a finished search and make the tags discoverable.
+
+    The tag line is a normal message, so it becomes searchable content for the
+    sidebar's keyword box. Tags are also stored in the thread's metadata
+    (SQLite-safe — unlike the data layer's `tags` column, which binds a list and
+    fails on sqlite). Both writes are best-effort.
+    """
+    locale = _user_locale()
+    tags = compute_thread_tags(profile, locale)
+    try:
+        await cl.Message(content=render_tag_line(tags, locale)).send()
+    except Exception as exc:
+        log.warning("tag_line_failed", error=str(exc))
+    data_layer = get_data_layer()
+    if data_layer is not None:
+        try:
+            await data_layer.update_thread(thread_id, metadata={"tags": tags})
+        except Exception as exc:
+            log.warning("tag_thread_metadata_failed", error=str(exc))
+
 
 # ----- Chainlit lifecycle -----
 
@@ -244,6 +297,24 @@ async def on_chat_start() -> None:
     await cl.Message(content=t("language_toggle_hint", locale)).send()
     await cl.Message(content=t("ask_who", locale)).send()
     cl.user_session.set("awaiting", "identity")
+
+
+@cl.on_chat_resume
+async def on_chat_resume(thread: ThreadDict) -> None:
+    """Restore server-side session state when a past thread is reopened.
+
+    Chainlit replays the persisted messages on its own; we only recompute the
+    `awaiting` flag from the graph checkpoint (the source of truth for what the
+    conversation is waiting for) so the next reply routes correctly.
+    """
+    graph = await _ensure_graph()
+    config = _thread_config()
+    snapshot = await graph.aget_state(config)
+    awaiting = resume_awaiting(snapshot, _user_locale())
+    cl.user_session.set("awaiting", awaiting.awaiting)
+    if awaiting.awaiting == "narrowing":
+        cl.user_session.set("narrowing_attribute", awaiting.narrowing_attribute)
+        cl.user_session.set("narrowing_candidate_count", awaiting.narrowing_candidate_count)
 
 
 @cl.on_message
@@ -273,7 +344,7 @@ async def on_message(message: cl.Message) -> None:
         if pending is not None:
             graph_input = build_resume_command(pending, ResumeAnswer(identity=parsed))
         else:
-            graph_input = PeopleSearchState(query=cast(IdentityQuery, parsed), locale=_user_locale())
+            graph_input = build_fresh_input(cast(IdentityQuery, parsed), _user_locale())
     elif awaiting == "narrowing":
         attribute = cl.user_session.get("narrowing_attribute")
         cand_count = int(cl.user_session.get("narrowing_candidate_count") or 0)
@@ -301,10 +372,11 @@ async def on_message(message: cl.Message) -> None:
         )
         graph_input = build_resume_command(pending, answer)
     else:
-        # No active expectation — treat as a fresh start.
-        cl.user_session.set("thread_id", str(uuid.uuid4()))
+        # No active expectation — a new search continues in the SAME thread
+        # (Chainlit's "New Chat" button is what starts a brand-new thread). On a
+        # finished thread this resets the stale graph state via build_fresh_input.
         parsed = parse_identity_text(text)
-        graph_input = PeopleSearchState(query=cast(IdentityQuery, parsed), locale=_user_locale())
+        graph_input = build_fresh_input(cast(IdentityQuery, parsed), _user_locale())
 
     cl.user_session.set("awaiting", None)
     state = await _stream_graph(graph_input)

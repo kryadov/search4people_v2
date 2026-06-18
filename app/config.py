@@ -76,6 +76,10 @@ class Settings(BaseSettings):
 
     # Storage
     db_path: Path = Path("data/app.db")
+    # Chainlit chat-history persistence lives in its own SQLite file: the data
+    # layer defines a `users` table that would collide with the auth `users`
+    # table in db_path.
+    chat_history_db_path: Path = Path("data/chat_history.db")
 
     # A2A server
     a2a_host: str = "0.0.0.0"
